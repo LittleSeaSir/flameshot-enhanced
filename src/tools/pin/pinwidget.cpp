@@ -15,6 +15,7 @@
 #include <QPinchGesture>
 #include <QScreen>
 #include <QShortcut>
+#include <QShowEvent>
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <QWindow>
@@ -61,9 +62,8 @@ PinWidget::PinWidget(const QPixmap& pixmap,
     new QShortcut(Qt::Key_Escape, this, SLOT(close()));
 
     // The `geometry` passed in is in device pixels (×DPR). Convert to logical
-    // pixels BEFORE calling setGeometry, otherwise the widget is placed/sized
-    // at 2× the intended coordinates on HiDPI screens and Qt::Tool windows on
-    // Wayland may ignore subsequent move() calls.
+    // and store — it will be applied in showEvent() when the Wayland platform
+    // window handle exists and can accept positioning.
     qreal dpr = 1.0;
     QScreen* currentScreen = QGuiAppCurrentScreen().currentScreen();
     QPoint screenTopLeft(0, 0);
@@ -80,9 +80,7 @@ PinWidget::PinWidget(const QPixmap& pixmap,
     logicalGeom.setWidth(static_cast<int>(geometry.width() / dpr));
     logicalGeom.setHeight(static_cast<int>(geometry.height() / dpr));
 
-    // MARGIN is in logical pixels; apply directly to the logical geometry
-    QRect adjusted = logicalGeom.adjusted(-MARGIN, -MARGIN, MARGIN, MARGIN);
-    setGeometry(adjusted);
+    m_pinGeometry = logicalGeom.adjusted(-MARGIN, -MARGIN, MARGIN, MARGIN);
 
     grabGesture(Qt::PinchGesture);
 
@@ -92,6 +90,16 @@ PinWidget::PinWidget(const QPixmap& pixmap,
             &QWidget::customContextMenuRequested,
             this,
             &PinWidget::showContextMenu);
+}
+
+void PinWidget::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    // On Wayland the platform window handle is created during show();
+    // setGeometry before show() is unreliable — apply it here instead.
+    if (!m_pinGeometry.isNull()) {
+        setGeometry(m_pinGeometry);
+    }
 }
 
 void PinWidget::closePin()

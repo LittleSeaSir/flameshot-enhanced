@@ -26,6 +26,7 @@ protected:
     void keyPressEvent(QKeyEvent*) override;
     void enterEvent(QEnterEvent*) override;
     void leaveEvent(QEvent*) override;
+    void showEvent(QShowEvent*) override;
 
     bool event(QEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
@@ -47,6 +48,7 @@ private:
     QLabel* m_label;
     QGraphicsDropShadowEffect* m_shadowEffect;
     QColor m_baseColor, m_hoverColor;
+    QRect m_pinGeometry;  // logical geometry, applied in showEvent
 
     bool m_expanding{ false };
     qreal m_scaleFactor{ 1 };
