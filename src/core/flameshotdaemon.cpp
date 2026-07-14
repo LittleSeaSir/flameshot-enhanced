@@ -118,20 +118,10 @@ void FlameshotDaemon::createPin(const QPixmap& capture, QRect geometry)
         return;
     }
 
-    QByteArray data;
-    QDataStream stream(&data, QIODevice::WriteOnly);
-
-#if defined(USE_KDSINGLEAPPLICATION) &&                                        \
-  (defined(Q_OS_MACOS) || defined(Q_OS_WIN))
-    auto kdsa = KDSingleApplication(QStringLiteral("org.flameshot.Flameshot"));
-    stream << QStringLiteral("attachPin") << capture << geometry;
-    kdsa.sendMessage(data);
-#else
-    stream << capture << geometry;
-    QDBusMessage m = createMethodCall(QStringLiteral("attachPin"));
-    m << data;
-    call(m);
-#endif
+    // No daemon running — create PinWidget directly to avoid DPR loss
+    // through QDataStream/D-Bus serialization (QPixmap DPR is not preserved).
+    auto* pinWidget = new PinWidget(capture, geometry);
+    pinWidget->show();
 }
 
 void FlameshotDaemon::copyToClipboard(const QPixmap& capture)
