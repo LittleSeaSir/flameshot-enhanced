@@ -92,6 +92,13 @@ void ScreenGrabber::freeDesktopPortal(bool& ok, QPixmap& res)
             QUrl uri = map.value("uri").toString();
             QString uriString = uri.toLocalFile();
             res = QPixmap(uriString);
+            // Wayland portal returns physical-resolution pixmap without DPR.
+            // Set it so extendedRect() scales selection correctly, and pin
+            // position/size match the actual screen pixels.
+            QScreen* screen = QGuiApplication::primaryScreen();
+            if (screen) {
+                res.setDevicePixelRatio(screen->devicePixelRatio());
+            }
             QFile imgFile(uriString);
             imgFile.remove();
         }
