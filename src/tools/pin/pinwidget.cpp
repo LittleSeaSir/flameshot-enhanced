@@ -80,8 +80,11 @@ PinWidget::PinWidget(const QPixmap& pixmap,
                           topLeft.y());
         adjusted_pos.setWidth(adjusted_pos.size().width() / devicePixelRatio);
         adjusted_pos.setHeight(adjusted_pos.size().height() / devicePixelRatio);
-        resize(0, 0);
         move(adjusted_pos.x(), adjusted_pos.y());
+        // adjustSize() lets the layout compute the correct widget size from
+        // the label's pixmap hint (instead of the zeroed-out size from
+        // resize(0,0) that caused the window manager to center the pin).
+        adjustSize();
     }
 
     grabGesture(Qt::PinchGesture);
