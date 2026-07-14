@@ -287,15 +287,16 @@ QPixmap ScreenGrabber::grabEntireDesktop(bool& ok, int preSelectedMonitor)
             return QPixmap();
         }
     }
-    // Safety net: if the screenshot still lacks DPR, infer it from the screen.
+    // Safety net: ensure screenshot DPR matches the screen's DPR.
     // This covers edge cases where QGuiApplication::primaryScreen() was not
     // available inside freeDesktopPortal (e.g. early startup via global shortcut).
-    if (!screenshot.isNull() && screenshot.devicePixelRatio() <= 1.0) {
+    if (!screenshot.isNull()) {
         const QList<QScreen*> screens = QGuiApplication::screens();
         if (!screens.isEmpty()) {
-            qreal dpr = screens.first()->devicePixelRatio();
-            if (dpr > 1.0) {
-                screenshot.setDevicePixelRatio(dpr);
+            qreal screenDpr = screens.first()->devicePixelRatio();
+            qreal pixmapDpr = screenshot.devicePixelRatio();
+            if (qAbs(screenDpr - pixmapDpr) > 0.01) {
+                screenshot.setDevicePixelRatio(screenDpr);
             }
         }
     }
