@@ -37,7 +37,7 @@ PinWidget::PinWidget(const QPixmap& pixmap,
 {
     setWindowIcon(QIcon(GlobalValues::iconPath()));
     setWindowFlags(Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint |
-                   Qt::Dialog);
+                   Qt::Tool);
     setFocusPolicy(Qt::StrongFocus);
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_DeleteOnClose);
