@@ -60,32 +60,29 @@ PinWidget::PinWidget(const QPixmap& pixmap,
     new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q), this, SLOT(close()));
     new QShortcut(Qt::Key_Escape, this, SLOT(close()));
 
-    qreal devicePixelRatio = 1;
+    // The `geometry` passed in is in device pixels (×DPR). Convert to logical
+    // pixels BEFORE calling setGeometry, otherwise the widget is placed/sized
+    // at 2× the intended coordinates on HiDPI screens and Qt::Tool windows on
+    // Wayland may ignore subsequent move() calls.
+    qreal dpr = 1.0;
     QScreen* currentScreen = QGuiAppCurrentScreen().currentScreen();
+    QPoint screenTopLeft(0, 0);
     if (currentScreen != nullptr) {
-        devicePixelRatio = currentScreen->devicePixelRatio();
+        dpr = currentScreen->devicePixelRatio();
+        screenTopLeft = currentScreen->geometry().topLeft();
     }
 
-    const int margin =
-      static_cast<int>(static_cast<double>(MARGIN) * devicePixelRatio);
-    QRect adjusted_pos = geometry + QMargins(margin, margin, margin, margin);
-    setGeometry(adjusted_pos);
+    QRect logicalGeom;
+    logicalGeom.setX(
+      static_cast<int>((geometry.x() - screenTopLeft.x()) / dpr + screenTopLeft.x()));
+    logicalGeom.setY(
+      static_cast<int>((geometry.y() - screenTopLeft.y()) / dpr + screenTopLeft.y()));
+    logicalGeom.setWidth(static_cast<int>(geometry.width() / dpr));
+    logicalGeom.setHeight(static_cast<int>(geometry.height() / dpr));
 
-    if (currentScreen != nullptr) {
-        QPoint topLeft = currentScreen->geometry().topLeft();
-        adjusted_pos.setX((adjusted_pos.x() - topLeft.x()) / devicePixelRatio +
-                          topLeft.x());
-
-        adjusted_pos.setY((adjusted_pos.y() - topLeft.y()) / devicePixelRatio +
-                          topLeft.y());
-        adjusted_pos.setWidth(adjusted_pos.size().width() / devicePixelRatio);
-        adjusted_pos.setHeight(adjusted_pos.size().height() / devicePixelRatio);
-        move(adjusted_pos.x(), adjusted_pos.y());
-        // adjustSize() lets the layout compute the correct widget size from
-        // the label's pixmap hint (instead of the zeroed-out size from
-        // resize(0,0) that caused the window manager to center the pin).
-        adjustSize();
-    }
+    // MARGIN is in logical pixels; apply directly to the logical geometry
+    QRect adjusted = logicalGeom.adjusted(-MARGIN, -MARGIN, MARGIN, MARGIN);
+    setGeometry(adjusted);
 
     grabGesture(Qt::PinchGesture);
 
