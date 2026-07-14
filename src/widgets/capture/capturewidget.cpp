@@ -306,7 +306,9 @@ CaptureWidget::CaptureWidget(const CaptureRequest& req,
     updateCursor();
 }
 
-CaptureWidget::CaptureWidget(const QPixmap& preloaded, QWidget* parent)
+CaptureWidget::CaptureWidget(const QPixmap& preloaded,
+                             const QRect& pinGeometry,
+                             QWidget* parent)
   : QWidget(parent)
   , m_toolSizeByKeyboard(0)
   , m_mouseIsClicked(false)
@@ -363,9 +365,21 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded, QWidget* parent)
     m_context.toolSize = m_config.drawThickness();
     m_context.request = CaptureRequest(CaptureRequest::GRAPHICAL_MODE);
     m_context.request.addTask(CaptureRequest::PIN);
-    // Set initial selection to full pixmap so ACCEPT exports everything
-    m_context.request.setInitialSelection(
-      QRect(QPoint(0, 0), preloaded.size() / preloaded.devicePixelRatio()));
+    // Use pin's screen position as initial selection so the re-edited pin
+    // stays at the same screen location. pinGeometry is in logical coords;
+    // setInitialSelection expects device-pixel coords (divided back in
+    // initSelection).
+    if (!pinGeometry.isNull()) {
+        qreal dpr = preloaded.devicePixelRatio();
+        m_context.request.setInitialSelection(QRect(
+          static_cast<int>(pinGeometry.x() * dpr),
+          static_cast<int>(pinGeometry.y() * dpr),
+          static_cast<int>(pinGeometry.width() * dpr),
+          static_cast<int>(pinGeometry.height() * dpr)));
+    } else {
+        m_context.request.setInitialSelection(
+          QRect(QPoint(0, 0), preloaded.size() / preloaded.devicePixelRatio()));
+    }
 
     // Platform-specific window setup (same as fullScreen path)
     QScreen* selectedScreen = QGuiAppCurrentScreen().currentScreen();

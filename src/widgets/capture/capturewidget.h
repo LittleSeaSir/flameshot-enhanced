@@ -51,6 +51,7 @@ public:
                            bool fullScreen = true,
                            QWidget* parent = nullptr);
     explicit CaptureWidget(const QPixmap& preloaded,
+                           const QRect& pinGeometry = QRect(),
                            QWidget* parent = nullptr);
     ~CaptureWidget();
 

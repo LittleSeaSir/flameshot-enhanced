@@ -284,8 +284,9 @@ void PinWidget::showContextMenu(const QPoint& pos)
     QAction reeditAction(tr("Re-edit"), this);
     connect(&reeditAction, &QAction::triggered, this, [this]() {
         QPixmap pix = m_pixmap;
+        QRect geom = geometry();
         hide();
-        Flameshot::instance()->pinEdit(pix);
+        Flameshot::instance()->pinEdit(pix, geom);
         close();
     });
     contextMenu.addAction(&reeditAction);

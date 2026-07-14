@@ -180,14 +180,14 @@ CaptureWidget* Flameshot::gui(const CaptureRequest& req)
     }
 }
 
-void Flameshot::pinEdit(const QPixmap& pixmap)
+void Flameshot::pinEdit(const QPixmap& pixmap, const QRect& geometry)
 {
     if (m_captureWindow) {
         m_captureWindow->close();
         delete m_captureWindow;
         m_captureWindow = nullptr;
     }
-    m_captureWindow = new CaptureWidget(pixmap);
+    m_captureWindow = new CaptureWidget(pixmap, geometry);
     m_captureWindow->showFullScreen();
     m_captureWindow->activateWindow();
     m_captureWindow->raise();
