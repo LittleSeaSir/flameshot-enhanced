@@ -306,6 +306,167 @@ CaptureWidget::CaptureWidget(const CaptureRequest& req,
     updateCursor();
 }
 
+CaptureWidget::CaptureWidget(const QPixmap& preloaded, QWidget* parent)
+  : QWidget(parent)
+  , m_toolSizeByKeyboard(0)
+  , m_mouseIsClicked(false)
+  , m_captureDone(false)
+  , m_previewEnabled(true)
+  , m_adjustmentButtonPressed(false)
+  , m_shiftPressed(false)
+  , m_currentAngle(0.0)
+  , m_showAngleIndicator(false)
+  , m_configError(false)
+  , m_configErrorResolved(false)
+  , m_lastMouseWheel(0)
+  , m_activeButton(nullptr)
+  , m_activeTool(nullptr)
+  , m_activeToolIsMoved(false)
+  , m_toolWidget(nullptr)
+  , m_panel(nullptr)
+  , m_sidePanel(nullptr)
+  , m_colorPicker(nullptr)
+  , m_selection(nullptr)
+  , m_magnifier(nullptr)
+  , m_xywhDisplay(false)
+  , m_existingObjectIsChanged(false)
+  , m_startMove(false)
+  , m_clipboardWorkaroundDone(false)
+{
+    m_undoStack.setUndoLimit(ConfigHandler().undoLimit());
+    m_context.circleCount = 1;
+
+    m_eventFilter = new HoverEventFilter(this);
+    connect(m_eventFilter,
+            &HoverEventFilter::hoverIn,
+            this,
+            &CaptureWidget::childEnter);
+    connect(m_eventFilter,
+            &HoverEventFilter::hoverOut,
+            this,
+            &CaptureWidget::childLeave);
+    connect(&m_xywhTimer, &QTimer::timeout, this, &CaptureWidget::xywhTick);
+    m_xywhTimer.setSingleShot(true);
+    setAttribute(Qt::WA_DeleteOnClose);
+    setMouseTracking(true);
+    m_opacity = m_config.contrastOpacity();
+    m_uiColor = m_config.uiColor();
+    m_contrastUiColor = m_config.contrastUiColor();
+
+    // Use preloaded pixmap instead of screen grab
+    m_context.screenshot = preloaded;
+    m_context.origScreenshot = preloaded;
+    m_context.fullscreen = true;
+    m_context.color = m_config.drawColor();
+    m_context.widgetOffset = mapToGlobal(QPoint(0, 0));
+    m_context.mousePos = mapFromGlobal(QCursor::pos());
+    m_context.toolSize = m_config.drawThickness();
+    m_context.request = CaptureRequest(CaptureRequest::GRAPHICAL_MODE);
+    m_context.request.addTask(CaptureRequest::PIN);
+    // Set initial selection to full pixmap so ACCEPT exports everything
+    m_context.request.setInitialSelection(
+      QRect(QPoint(0, 0), preloaded.size() / preloaded.devicePixelRatio()));
+
+    // Platform-specific window setup (same as fullScreen path)
+    QScreen* selectedScreen = QGuiAppCurrentScreen().currentScreen();
+    if (!selectedScreen)
+        selectedScreen = QGuiApplication::primaryScreen();
+#if defined(Q_OS_WIN)
+    setWindowFlags(Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint |
+                   Qt::SubWindow);
+    resize(QSize(m_context.screenshot.width() / m_context.screenshot.devicePixelRatio(),
+                 m_context.screenshot.height() / m_context.screenshot.devicePixelRatio()));
+    if (selectedScreen && windowHandle())
+        windowHandle()->setScreen(selectedScreen);
+#elif defined(Q_OS_MACOS)
+    if (!ConfigHandler().useNativeFullscreen()) {
+        setWindowFlags(Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint |
+                       Qt::Tool);
+    }
+    move(selectedScreen->geometry().x(), selectedScreen->geometry().y());
+    resize(selectedScreen->size());
+#else
+    if (DesktopInfo().waylandDetected()) {
+        setWindowFlags(Qt::BypassWindowManagerHint |
+                       Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint |
+                       Qt::Tool);
+    } else {
+        setWindowFlags(Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint |
+                       Qt::Tool);
+    }
+    move(selectedScreen->geometry().topLeft());
+    resize(selectedScreen->size());
+    if (selectedScreen && windowHandle())
+        windowHandle()->setScreen(selectedScreen);
+#endif
+
+    QRect area = selectedScreen->geometry();
+    area.moveTo(0, 0);
+
+    m_buttonHandler = new ButtonHandler(this);
+    m_buttonHandler->updateScreenRegions({ area });
+    m_buttonHandler->hide();
+
+    initButtons();
+    initSelection();
+    initShortcuts();
+    if (m_config.showMagnifier()) {
+        m_magnifier = new MagnifierWidget(
+          m_context.screenshot, m_uiColor, m_config.squareMagnifier(), this);
+    }
+    m_colorPicker = new ColorPicker(this);
+    m_notifierBox = new NotifierBox(this);
+    initPanel();
+
+    connect(m_colorPicker,
+            &ColorPicker::colorSelected,
+            this,
+            [this](const QColor& c) {
+                m_context.mousePos = mapFromGlobal(QCursor::pos());
+                setDrawColor(c);
+            });
+    m_colorPicker->hide();
+
+    connect(this,
+            &CaptureWidget::toolSizeChanged,
+            this,
+            &CaptureWidget::onToolSizeChanged);
+    m_notifierBox->hide();
+    connect(m_notifierBox, &NotifierBox::hidden, this, [this]() {
+        updateCursor();
+        m_toolSizeByKeyboard = 0;
+        onToolSizeChanged(m_context.toolSize);
+        onToolSizeSettled(m_context.toolSize);
+    });
+
+    m_config.checkAndHandleError();
+    if (m_config.hasError())
+        m_configError = true;
+    connect(
+      ConfigHandler::getInstance(), &ConfigHandler::error, this, [=, this]() {
+          m_configError = true;
+          m_configErrorResolved = false;
+          OverlayMessage::instance()->update();
+      });
+    connect(ConfigHandler::getInstance(),
+            &ConfigHandler::errorResolved,
+            this,
+            [=, this]() {
+                m_configError = false;
+                m_configErrorResolved = true;
+                OverlayMessage::instance()->update();
+            });
+
+    QRect overlayArea = area;
+    OverlayMessage::init(this, overlayArea);
+    if (m_config.showHelp()) {
+        initHelpMessage();
+        OverlayMessage::push(m_helpMessage);
+    }
+    initQuitPrompt();
+    updateCursor();
+}
+
 CaptureWidget::~CaptureWidget()
 {
 #if defined(Q_OS_MACOS)

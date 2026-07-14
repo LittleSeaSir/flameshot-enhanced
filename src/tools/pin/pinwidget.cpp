@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2017-2019 Alejandro Sirgo Rica & Contributors
 
 #include "pinwidget.h"
+#include "core/flameshot.h"
 #include "core/qguiappcurrentscreen.h"
 #include "utils/confighandler.h"
 #include "utils/globalvalues.h"
@@ -279,6 +280,16 @@ void PinWidget::pinchTriggered(QPinchGesture* gesture)
 void PinWidget::showContextMenu(const QPoint& pos)
 {
     QMenu contextMenu(tr("Context menu"), this);
+
+    QAction reeditAction(tr("Re-edit"), this);
+    connect(&reeditAction, &QAction::triggered, this, [this]() {
+        QPixmap pix = m_pixmap;
+        hide();
+        Flameshot::instance()->pinEdit(pix);
+        close();
+    });
+    contextMenu.addAction(&reeditAction);
+    contextMenu.addSeparator();
 
     QAction copyToClipboardAction(tr("Copy to clipboard"), this);
     connect(&copyToClipboardAction,

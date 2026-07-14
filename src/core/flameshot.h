@@ -53,6 +53,7 @@ public slots:
     void full(const CaptureRequest& req);
     void launcher();
     void config();
+    void pinEdit(const QPixmap& pixmap);
 
     void info();
 

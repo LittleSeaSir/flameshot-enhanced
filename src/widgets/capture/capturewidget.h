@@ -50,6 +50,8 @@ public:
     explicit CaptureWidget(const CaptureRequest& req,
                            bool fullScreen = true,
                            QWidget* parent = nullptr);
+    explicit CaptureWidget(const QPixmap& preloaded,
+                           QWidget* parent = nullptr);
     ~CaptureWidget();
 
     QPixmap pixmap();
