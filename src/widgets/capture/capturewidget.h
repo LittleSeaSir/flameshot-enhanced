@@ -69,6 +69,7 @@ public slots:
 signals:
     void colorChanged(const QColor& c);
     void toolSizeChanged(int size);
+    void captureFinished(bool accepted);
 
 private slots:
     void undo();
@@ -122,6 +123,7 @@ private:
     int selectToolItemAtPos(const QPoint& pos);
     void showColorPicker(const QPoint& pos);
     bool startDrawObjectTool(const QPoint& pos);
+    bool eraseWholeStrokesBetween(const QPoint& from, const QPoint& to);
     QPointer<CaptureTool> activeToolObject();
     void initContext(bool fullscreen, const CaptureRequest& req);
     void initPanel();
@@ -220,6 +222,8 @@ private:
 
     QPoint m_mousePressedPos;
     QPoint m_activeToolOffsetToMouseOnStart;
+    QPoint m_lastWholeStrokeErasePos;
+    bool m_wholeStrokeEraseChanged{ false };
 
     // XYWH display position and timer
     bool m_xywhDisplay;

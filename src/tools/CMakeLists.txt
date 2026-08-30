@@ -34,13 +34,20 @@ target_sources(
 target_sources(flameshot PRIVATE line/linetool.h line/linetool.cpp)
 target_sources(flameshot PRIVATE marker/markertool.h marker/markertool.cpp)
 target_sources(flameshot PRIVATE move/movetool.h move/movetool.cpp)
-target_sources(flameshot PRIVATE pencil/penciltool.h pencil/penciltool.cpp)
+target_sources(
+  flameshot
+  PRIVATE pencil/penciltool.h
+          pencil/penciltool.cpp
+          pencil/strokesmoother.h
+          pencil/strokesmoother.cpp)
 target_sources(flameshot PRIVATE eraser/erasertool.h eraser/erasertool.cpp)
 target_sources(
   flameshot
   PRIVATE pin/pintool.h
+          pin/pineditorlayout.h
           pin/pinwidget.h
           pin/pintool.cpp
+          pin/pineditorlayout.cpp
           pin/pinwidget.cpp)
 target_sources(flameshot PRIVATE rectangle/rectangletool.h rectangle/rectangletool.cpp)
 target_sources(flameshot PRIVATE redo/redotool.h redo/redotool.cpp)

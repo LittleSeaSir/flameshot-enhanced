@@ -4,7 +4,6 @@
 #include "capturetoolobjects.h"
 
 #define SEARCH_RADIUS_NEAR 3
-#define SEARCH_RADIUS_FAR 5
 #define SEARCH_RADIUS_TEXT_HANDICAP 5
 
 CaptureToolObjects::CaptureToolObjects(QObject* parent)
@@ -15,7 +14,6 @@ void CaptureToolObjects::append(const QPointer<CaptureTool>& captureTool)
 {
     if (!captureTool.isNull()) {
         m_captureToolObjects.append(captureTool->copy(captureTool->parent()));
-        m_imageCache.clear();
     }
 }
 
@@ -26,7 +24,6 @@ void CaptureToolObjects::insert(int index,
         index <= m_captureToolObjects.size()) {
         m_captureToolObjects.insert(index,
                                     captureTool->copy(captureTool->parent()));
-        m_imageCache.clear();
     }
 }
 
@@ -57,25 +54,26 @@ void CaptureToolObjects::removeAt(int index)
 {
     if (index >= 0 && index < m_captureToolObjects.size()) {
         m_captureToolObjects.removeAt(index);
-        m_imageCache.clear();
     }
 }
 
-int CaptureToolObjects::find(const QPoint& pos, QSize captureSize)
+int CaptureToolObjects::find(const QPoint& pos,
+                             QSize captureSize,
+                             int radius)
 {
     if (m_captureToolObjects.empty()) {
         return -1;
     }
+    radius = qMax(0, radius);
     QPixmap pixmap(captureSize);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
-    // first attempt to find at exact position
-    int radius = SEARCH_RADIUS_NEAR;
-    int index = findWithRadius(painter, pixmap, pos, radius);
-    if (-1 == index) {
+    // Keep the legacy two-stage lookup for normal object selection. Whole
+    // stroke erasing supplies its brush radius directly.
+    int index = findWithRadius(
+      painter, pixmap, pos, qMin(radius, SEARCH_RADIUS_NEAR));
+    if (-1 == index && radius > SEARCH_RADIUS_NEAR) {
         // second attempt to find at position with radius
-        radius = SEARCH_RADIUS_FAR;
-        pixmap.fill(Qt::transparent);
         index = findWithRadius(painter, pixmap, pos, radius);
     }
     return index;
@@ -87,28 +85,29 @@ int CaptureToolObjects::findWithRadius(QPainter& painter,
                                        int radius)
 {
     int index = m_captureToolObjects.size() - 1;
-    bool useCache = true;
-    m_imageCache.clear();
-    if (m_imageCache.size() != m_captureToolObjects.size() && index >= 0) {
-        // TODO - is not optimal and cache will be used just after first tool
-        // object selecting
-        m_imageCache.clear();
-        useCache = false;
-    }
     for (; index >= 0; --index) {
         int currentRadius = radius;
-        QImage image;
         auto toolItem = m_captureToolObjects.at(index);
-        if (useCache) {
-            image = m_imageCache.at(index);
-        } else {
-            // create transparent image in memory and draw toolItem on it
-            toolItem->drawSearchArea(painter, pixmap);
-
-            // get color at mouse clicked position in area +/- currentRadius
-            image = pixmap.toImage();
-            m_imageCache.insert(0, image);
+        if (!toolItem ||
+            !toolItem->boundingRect()
+               .adjusted(-currentRadius,
+                         -currentRadius,
+                         currentRadius,
+                         currentRadius)
+               .contains(pos)) {
+            continue;
         }
+
+        // Each candidate needs an isolated buffer; otherwise pixels from a
+        // higher layer can cause a false hit on every layer below it.
+        painter.save();
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        painter.fillRect(pixmap.rect(), Qt::transparent);
+        painter.restore();
+        toolItem->drawSearchArea(painter, pixmap);
+        painter.end();
+        const QImage image = pixmap.toImage();
+        painter.begin(&pixmap);
 
         if (toolItem->type() == CaptureTool::TYPE_TEXT) {
             if (currentRadius > SEARCH_RADIUS_NEAR) {
@@ -123,9 +122,13 @@ int CaptureToolObjects::findWithRadius(QPainter& painter,
             currentRadius += SEARCH_RADIUS_TEXT_HANDICAP;
         }
 
-        for (int x = pos.x() - currentRadius; x <= pos.x() + currentRadius;
+        const int left = qMax(0, pos.x() - currentRadius);
+        const int right = qMin(image.width() - 1, pos.x() + currentRadius);
+        const int top = qMax(0, pos.y() - currentRadius);
+        const int bottom = qMin(image.height() - 1, pos.y() + currentRadius);
+        for (int x = left; x <= right;
              ++x) {
-            for (int y = pos.y() - currentRadius; y <= pos.y() + currentRadius;
+            for (int y = top; y <= bottom;
                  ++y) {
                 QRgb rgb = image.pixel(x, y);
                 if (rgb != 0) {

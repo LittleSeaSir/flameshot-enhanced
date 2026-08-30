@@ -17,6 +17,7 @@
 #include "tools/copy/copytool.h"
 #include "tools/abstracttwopointtool.h"
 #include "tools/eraser/erasertool.h"
+#include "tools/pin/pineditorlayout.h"
 #include "utils/abstractlogger.h"
 #include "utils/screengrabber.h"
 #include "utils/screenshotsaver.h"
@@ -34,6 +35,7 @@
 #include <QCheckBox>
 #include <QDateTime>
 #include <QFontMetrics>
+#include <QLineF>
 #include <QMessageBox>
 #include <QPaintEvent>
 #include <QPainter>
@@ -355,9 +357,22 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
     m_uiColor = m_config.uiColor();
     m_contrastUiColor = m_config.contrastUiColor();
 
-    // Use preloaded pixmap instead of screen grab
-    m_context.screenshot = preloaded;
-    m_context.origScreenshot = preloaded;
+    // Build a screen-sized editor canvas and place the pinned image at its
+    // actual screen-local position. A small pixmap drawn at (0, 0) in a
+    // fullscreen widget makes annotations and export cropping disagree.
+    QScreen* selectedScreen = pinGeometry.isNull()
+                                ? QGuiAppCurrentScreen().currentScreen()
+                                : QGuiApplication::screenAt(
+                                    pinGeometry.center());
+    if (!selectedScreen) {
+        selectedScreen = QGuiApplication::primaryScreen();
+    }
+    const QRect screenGeometry = selectedScreen->geometry();
+    const qreal canvasDpr = selectedScreen->devicePixelRatio();
+    const PinEditorLayout editorLayout = createPinEditorLayout(
+      preloaded, pinGeometry, screenGeometry, canvasDpr);
+    m_context.screenshot = editorLayout.canvas;
+    m_context.origScreenshot = editorLayout.canvas;
     m_context.fullscreen = true;
     m_context.color = m_config.drawColor();
     m_context.widgetOffset = mapToGlobal(QPoint(0, 0));
@@ -365,26 +380,11 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
     m_context.toolSize = m_config.drawThickness();
     m_context.request = CaptureRequest(CaptureRequest::GRAPHICAL_MODE);
     m_context.request.addTask(CaptureRequest::PIN);
-    // Use pin's screen position as initial selection so the re-edited pin
-    // stays at the same screen location. pinGeometry is in logical coords;
-    // setInitialSelection expects device-pixel coords (divided back in
-    // initSelection).
-    if (!pinGeometry.isNull()) {
-        qreal dpr = preloaded.devicePixelRatio();
-        m_context.request.setInitialSelection(QRect(
-          static_cast<int>(pinGeometry.x() * dpr),
-          static_cast<int>(pinGeometry.y() * dpr),
-          static_cast<int>(pinGeometry.width() * dpr),
-          static_cast<int>(pinGeometry.height() * dpr)));
-    } else {
-        m_context.request.setInitialSelection(
-          QRect(QPoint(0, 0), preloaded.size() / preloaded.devicePixelRatio()));
-    }
+    // Initial selection is stored in physical screen-local coordinates and
+    // converted back to logical coordinates by initSelection().
+    m_context.request.setInitialSelection(editorLayout.initialSelection);
 
     // Platform-specific window setup (same as fullScreen path)
-    QScreen* selectedScreen = QGuiAppCurrentScreen().currentScreen();
-    if (!selectedScreen)
-        selectedScreen = QGuiApplication::primaryScreen();
 #if defined(Q_OS_WIN)
     setWindowFlags(Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint |
                    Qt::SubWindow);
@@ -413,6 +413,10 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
     if (selectedScreen && windowHandle())
         windowHandle()->setScreen(selectedScreen);
 #endif
+
+    // move() can be deferred by the window system, but export geometry needs
+    // the target screen origin immediately.
+    m_context.widgetOffset = screenGeometry.topLeft();
 
     QRect area = selectedScreen->geometry();
     area.moveTo(0, 0);
@@ -509,6 +513,7 @@ CaptureWidget::~CaptureWidget()
     } else {
         emit Flameshot::instance()->captureFailed();
     }
+    emit captureFinished(m_captureDone);
 }
 
 void CaptureWidget::initButtons()
@@ -1063,6 +1068,53 @@ bool CaptureWidget::startDrawObjectTool(const QPoint& pos)
     return false;
 }
 
+bool CaptureWidget::eraseWholeStrokesBetween(const QPoint& from,
+                                             const QPoint& to)
+{
+    auto* eraser = qobject_cast<EraserTool*>(m_activeTool.data());
+    if (!eraser || eraser->mode() != EraserTool::Mode::WholeStroke) {
+        return false;
+    }
+
+    const int radius = qMax(5, eraser->size() / 2);
+    const qreal distance = QLineF(from, to).length();
+    const int steps = qMax(1, qCeil(distance / qMax(1.0, radius * 0.7)));
+    bool changed = false;
+
+    for (int step = 0; step <= steps; ++step) {
+        const qreal t = static_cast<qreal>(step) / steps;
+        const QPoint sample = from + (to - from) * t;
+        int hitIndex = -1;
+        while ((hitIndex = m_captureToolObjects.find(sample, size(), radius)) >=
+               0) {
+            if (!m_wholeStrokeEraseChanged) {
+                m_captureToolObjectsBackup = m_captureToolObjects;
+            }
+            const auto removedTool = m_captureToolObjects.at(hitIndex);
+            if (removedTool &&
+                removedTool->type() == CaptureTool::TYPE_CIRCLECOUNT) {
+                const int removedCount = removedTool->count();
+                for (int i = 0; i < m_captureToolObjects.size(); ++i) {
+                    auto tool = m_captureToolObjects.at(i);
+                    if (tool && tool->type() == CaptureTool::TYPE_CIRCLECOUNT &&
+                        tool->count() > removedCount) {
+                        tool->setCount(tool->count() - 1);
+                    }
+                }
+            }
+            m_captureToolObjects.removeAt(hitIndex);
+            m_wholeStrokeEraseChanged = true;
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        drawToolsData();
+        updateLayersPanel();
+    }
+    return changed;
+}
+
 void CaptureWidget::pushObjectsStateToUndoStack()
 {
     m_undoStack.push(new ModificationCommand(
@@ -1120,6 +1172,13 @@ void CaptureWidget::mousePressEvent(QMouseEvent* e)
 
         // Click using a tool excluding tool MOVE
         if (startDrawObjectTool(m_mousePressedPos)) {
+            auto* eraser = qobject_cast<EraserTool*>(m_activeTool.data());
+            if (eraser && eraser->mode() == EraserTool::Mode::WholeStroke) {
+                m_wholeStrokeEraseChanged = false;
+                m_lastWholeStrokeErasePos = m_mousePressedPos;
+                eraseWholeStrokesBetween(m_mousePressedPos,
+                                         m_mousePressedPos);
+            }
             // return if success
             return;
         }
@@ -1224,7 +1283,11 @@ void CaptureWidget::mouseMoveEvent(QMouseEvent* e)
         }
     } else if (m_activeTool) {
         // drawing with a tool
-        if (m_adjustmentButtonPressed || m_shiftPressed) {
+        auto* eraser = qobject_cast<EraserTool*>(m_activeTool.data());
+        if (eraser && eraser->mode() == EraserTool::Mode::WholeStroke) {
+            eraseWholeStrokesBetween(m_lastWholeStrokeErasePos, e->pos());
+            m_lastWholeStrokeErasePos = e->pos();
+        } else if (m_adjustmentButtonPressed || m_shiftPressed) {
             m_activeTool->drawMoveWithAdjustment(e->pos());
         } else {
             m_activeTool->drawMove(m_displayGrid ? snapToGrid(e->pos())
@@ -1274,24 +1337,27 @@ void CaptureWidget::mouseReleaseEvent(QMouseEvent* e)
         }
     } else if (m_mouseIsClicked) {
         if (m_activeTool) {
+            auto* eraser = qobject_cast<EraserTool*>(m_activeTool.data());
+            if (eraser && eraser->mode() == EraserTool::Mode::WholeStroke) {
+                eraseWholeStrokesBetween(m_lastWholeStrokeErasePos,
+                                         m_context.mousePos);
+                releaseActiveTool();
+                if (m_wholeStrokeEraseChanged) {
+                    pushObjectsStateToUndoStack();
+                    restoreCircleCountState();
+                }
+                m_wholeStrokeEraseChanged = false;
+                m_mouseIsClicked = false;
+                m_activeToolIsMoved = false;
+                updateSelectionState();
+                updateCursor();
+                return;
+            }
             // end draw/edit
             m_activeTool->drawEnd(m_context.mousePos);
             if (m_activeTool->isValid()) {
                 pushToolToStack();
             } else if (!m_toolWidget) {
-                // Tool is invalid (only 1 point = single click, not a drag)
-                // For Eraser: single click on annotation = delete whole object
-                if (m_activeTool->type() == CaptureTool::TYPE_ERASER) {
-                    int hitIndex =
-                      m_captureToolObjects.find(m_context.mousePos, size());
-                    if (hitIndex >= 0) {
-                        m_captureToolObjectsBackup = m_captureToolObjects;
-                        m_captureToolObjects.removeAt(hitIndex);
-                        pushObjectsStateToUndoStack();
-                        drawToolsData();
-                        updateLayersPanel();
-                    }
-                }
                 releaseActiveTool();
             }
         } else {
@@ -2126,7 +2192,9 @@ void CaptureWidget::drawToolsData(bool drawSelection)
                 // Only erases annotations rendered BEFORE this eraser.
                 auto* eraserTool =
                   qobject_cast<EraserTool*>(toolItem.data());
-                if (eraserTool && eraserTool->points().size() > 1) {
+                if (eraserTool &&
+                    eraserTool->mode() == EraserTool::Mode::Pixel &&
+                    !eraserTool->points().isEmpty()) {
                     QPainter painter(&annotLayer);
                     painter.setRenderHint(QPainter::Antialiasing);
                     painter.setCompositionMode(
@@ -2136,9 +2204,13 @@ void CaptureWidget::drawToolsData(bool drawSelection)
                                         Qt::SolidLine,
                                         Qt::RoundCap,
                                         Qt::RoundJoin));
-                    painter.drawPolyline(
-                      eraserTool->points().data(),
-                      eraserTool->points().size());
+                    if (eraserTool->points().size() == 1) {
+                        painter.drawPoint(eraserTool->points().first());
+                    } else {
+                        painter.drawPolyline(
+                          eraserTool->points().data(),
+                          eraserTool->points().size());
+                    }
                 }
                 update(paddedUpdateRect(toolItem->boundingRect()));
             }

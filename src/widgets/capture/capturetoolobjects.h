@@ -18,7 +18,7 @@ public:
     void removeAt(int index);
     void clear();
     int size();
-    int find(const QPoint& pos, QSize captureSize);
+    int find(const QPoint& pos, QSize captureSize, int radius = 5);
     QPointer<CaptureTool> at(int index);
     CaptureToolObjects& operator=(const CaptureToolObjects& other);
 
@@ -30,5 +30,4 @@ private:
 
     // class members
     QList<QPointer<CaptureTool>> m_captureToolObjects;
-    QVector<QImage> m_imageCache;
 };

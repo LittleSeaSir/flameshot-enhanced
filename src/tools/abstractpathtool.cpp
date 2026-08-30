@@ -87,7 +87,7 @@ QRect AbstractPathTool::boundingRect() const
 
 void AbstractPathTool::drawEnd(const QPoint& p)
 {
-    Q_UNUSED(p)
+    addPoint(p);
 }
 
 void AbstractPathTool::drawMove(const QPoint& p)
@@ -119,6 +119,12 @@ void AbstractPathTool::onSizeChanged(int size)
 
 void AbstractPathTool::addPoint(const QPoint& point)
 {
+    // High-report-rate mice can deliver multiple events for the same logical
+    // pixel. Keeping duplicates only increases path processing cost and can
+    // create zero-length spline segments.
+    if (!m_points.isEmpty() && m_points.last() == point) {
+        return;
+    }
     if (m_pathArea.left() > point.x()) {
         m_pathArea.setLeft(point.x());
     } else if (m_pathArea.right() < point.x()) {

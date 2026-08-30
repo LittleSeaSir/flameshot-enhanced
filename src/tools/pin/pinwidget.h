@@ -42,6 +42,7 @@ private:
 
     void increaseOpacity();
     void decreaseOpacity();
+    void reEdit();
 
     QPixmap m_pixmap;
     QVBoxLayout* m_layout;
@@ -56,6 +57,7 @@ private:
     unsigned int m_rotateFactor{ 0 };
     qreal m_currentStepScaleFactor{ 1 };
     bool m_sizeChanged{ false };
+    bool m_editing{ false };
 
 private slots:
     void showContextMenu(const QPoint& pos);

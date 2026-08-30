@@ -60,6 +60,8 @@ PinWidget::PinWidget(const QPixmap& pixmap,
 
     new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q), this, SLOT(close()));
     new QShortcut(Qt::Key_Escape, this, SLOT(close()));
+    auto* editShortcut = new QShortcut(Qt::Key_Space, this);
+    connect(editShortcut, &QShortcut::activated, this, &PinWidget::reEdit);
 
     // The `geometry` passed in is in device pixels (×DPR). Convert to logical
     // and store — it will be applied in showEvent() when the Wayland platform
@@ -205,6 +207,7 @@ void PinWidget::rotateLeft()
 
     auto rotateTransform = QTransform().rotate(270);
     m_pixmap = m_pixmap.transformed(rotateTransform);
+    update();
 }
 
 void PinWidget::rotateRight()
@@ -213,6 +216,47 @@ void PinWidget::rotateRight()
 
     auto rotateTransform = QTransform().rotate(90);
     m_pixmap = m_pixmap.transformed(rotateTransform);
+    update();
+}
+
+void PinWidget::reEdit()
+{
+    if (m_editing) {
+        return;
+    }
+
+    const QPixmap displayedPixmap = m_label->pixmap();
+    if (displayedPixmap.isNull()) {
+        return;
+    }
+
+    m_editing = true;
+    const QRect contentGeometry(m_label->mapToGlobal(QPoint(0, 0)),
+                                m_label->size());
+    hide();
+    CaptureWidget* editor =
+      Flameshot::instance()->pinEdit(displayedPixmap, contentGeometry);
+    if (!editor) {
+        m_editing = false;
+        show();
+        return;
+    }
+
+    // Keep the original pin alive while editing. Cancel restores it; accepting
+    // creates the replacement pin and then closes this one.
+    connect(editor,
+            &CaptureWidget::captureFinished,
+            this,
+            [this](bool accepted) {
+                m_editing = false;
+                if (accepted) {
+                    close();
+                } else {
+                    show();
+                    activateWindow();
+                    raise();
+                }
+            });
 }
 
 void PinWidget::increaseOpacity()
@@ -290,13 +334,8 @@ void PinWidget::showContextMenu(const QPoint& pos)
     QMenu contextMenu(tr("Context menu"), this);
 
     QAction reeditAction(tr("Re-edit"), this);
-    connect(&reeditAction, &QAction::triggered, this, [this]() {
-        QPixmap pix = m_pixmap;
-        QRect geom = geometry();
-        hide();
-        Flameshot::instance()->pinEdit(pix, geom);
-        close();
-    });
+    reeditAction.setShortcut(Qt::Key_Space);
+    connect(&reeditAction, &QAction::triggered, this, &PinWidget::reEdit);
     contextMenu.addAction(&reeditAction);
     contextMenu.addSeparator();
 
