@@ -59,7 +59,9 @@ private:
     qreal m_currentStepScaleFactor{ 1 };
     bool m_sizeChanged{ false };
     bool m_editing{ false };
+    bool m_waylandPositioned{ false };
     bool m_waylandLayerPositioned{ false };
+    bool m_dragging{ false };
     QPoint m_dragStartGlobal;
     QRect m_dragStartGeometry;
 

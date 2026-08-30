@@ -460,8 +460,9 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
         OverlayMessage::push(m_helpMessage);
     }
     initQuitPrompt();
-    m_waylandLayerPositioned =
-      positionWaylandWindow(this, m_deferredWindowGeometry);
+    m_waylandPositioned =
+      positionWaylandWindow(this, m_deferredWindowGeometry) !=
+      WaylandWindowPositioning::Unavailable;
     updateCursor();
 }
 
@@ -1490,7 +1491,7 @@ void CaptureWidget::showEvent(QShowEvent* e)
 {
     QWidget::showEvent(e);
     if (!m_deferredWindowGeometry.isNull()) {
-        if (!m_waylandLayerPositioned) {
+        if (!m_waylandPositioned) {
             setGeometry(m_deferredWindowGeometry);
         }
         m_context.widgetOffset = m_deferredWindowGeometry.topLeft();

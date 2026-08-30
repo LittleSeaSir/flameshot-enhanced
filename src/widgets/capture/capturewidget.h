@@ -227,7 +227,7 @@ private:
     QPoint m_lastWholeStrokeErasePos;
     bool m_wholeStrokeEraseChanged{ false };
     QRect m_deferredWindowGeometry;
-    bool m_waylandLayerPositioned{ false };
+    bool m_waylandPositioned{ false };
 
     // XYWH display position and timer
     bool m_xywhDisplay;

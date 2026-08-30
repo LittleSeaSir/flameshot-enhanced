@@ -9,6 +9,7 @@
 #include "utils/screenshotsaver.h"
 #include "utils/waylandwindowpositioner.h"
 
+#include <QCursor>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsOpacityEffect>
 #include <QLabel>
@@ -96,8 +97,12 @@ PinWidget::PinWidget(const QPixmap& pixmap,
             &PinWidget::showContextMenu);
 
     setGeometry(m_pinGeometry);
-    m_waylandLayerPositioned =
+    const WaylandWindowPositioning positioning =
       positionWaylandWindow(this, m_pinGeometry);
+    m_waylandPositioned =
+      positioning != WaylandWindowPositioning::Unavailable;
+    m_waylandLayerPositioned =
+      positioning == WaylandWindowPositioning::LayerShell;
 }
 
 void PinWidget::showEvent(QShowEvent* event)
@@ -105,7 +110,7 @@ void PinWidget::showEvent(QShowEvent* event)
     QWidget::showEvent(event);
     // On Wayland the platform window handle is created during show();
     // setGeometry before show() is unreliable — apply it here instead.
-    if (!m_waylandLayerPositioned && !m_pinGeometry.isNull()) {
+    if (!m_waylandPositioned && !m_pinGeometry.isNull()) {
         setGeometry(m_pinGeometry);
     }
 }
@@ -165,9 +170,16 @@ void PinWidget::mouseDoubleClickEvent(QMouseEvent*)
 
 void PinWidget::mousePressEvent(QMouseEvent* e)
 {
+    if (e->button() != Qt::LeftButton) {
+        QWidget::mousePressEvent(e);
+        return;
+    }
     if (m_waylandLayerPositioned) {
-        m_dragStartGlobal = e->globalPosition().toPoint();
+        m_dragging = true;
+        m_dragStartGlobal = QCursor::pos();
         m_dragStartGeometry = m_pinGeometry;
+        grabMouse();
+        setCursor(Qt::ClosedHandCursor);
         e->accept();
         return;
     }
@@ -179,18 +191,28 @@ void PinWidget::mousePressEvent(QMouseEvent* e)
 
 void PinWidget::mouseMoveEvent(QMouseEvent* e)
 {
-    if (m_waylandLayerPositioned &&
-        e->buttons().testFlag(Qt::LeftButton)) {
+    if (m_waylandLayerPositioned && m_dragging) {
         m_pinGeometry = m_dragStartGeometry.translated(
-          e->globalPosition().toPoint() - m_dragStartGlobal);
+          QCursor::pos() - m_dragStartGlobal);
         positionWaylandWindow(this, m_pinGeometry);
         e->accept();
+        return;
     }
+    QWidget::mouseMoveEvent(e);
 }
 
 void PinWidget::mouseReleaseEvent(QMouseEvent* e)
 {
-    if (m_waylandLayerPositioned && e->button() == Qt::LeftButton) {
+    if (m_waylandLayerPositioned && m_dragging &&
+        e->button() == Qt::LeftButton) {
+        m_pinGeometry = m_dragStartGeometry.translated(
+          QCursor::pos() - m_dragStartGlobal);
+        positionWaylandWindow(this, m_pinGeometry);
+        m_dragging = false;
+        if (mouseGrabber() == this) {
+            releaseMouse();
+        }
+        unsetCursor();
         e->accept();
         return;
     }

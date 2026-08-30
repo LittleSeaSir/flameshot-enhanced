@@ -8,6 +8,13 @@
 
 class QWidget;
 
+enum class WaylandWindowPositioning
+{
+    Unavailable,
+    PlasmaShell,
+    LayerShell,
+};
+
 struct AnchoredWindowPlacement
 {
     QMargins margins;
@@ -21,5 +28,6 @@ AnchoredWindowPlacement anchoredWindowPlacement(
 // Ordinary xdg-toplevel windows cannot choose their position on Wayland.
 // When KDE's optional LayerShellQt runtime is available, turn this widget
 // into a top-layer surface anchored at the requested global geometry.
-bool positionWaylandWindow(QWidget* widget,
-                           const QRect& globalWindowGeometry);
+WaylandWindowPositioning positionWaylandWindow(
+  QWidget* widget,
+  const QRect& globalWindowGeometry);

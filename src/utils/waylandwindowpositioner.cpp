@@ -22,6 +22,16 @@ using GetLayerShellWindow = QObject* (*)(QWindow*);
 using SetLayerShellInt = void (*)(QObject*, int);
 using SetLayerShellMargins = void (*)(QObject*, const QMargins&);
 using SetLayerShellSize = void (*)(QObject*, const QSize&);
+using GetPlasmaShellWindow = QObject* (*)(QWindow*);
+using SetPlasmaShellPosition = void (*)(QObject*, const QPoint&);
+
+struct PlasmaShellApi
+{
+    GetPlasmaShellWindow getWindow{ nullptr };
+    SetPlasmaShellPosition setPosition{ nullptr };
+
+    bool available() const { return getWindow && setPosition; }
+};
 
 struct LayerShellApi
 {
@@ -78,6 +88,31 @@ LayerShellApi& layerShellApi()
     return api;
 }
 
+PlasmaShellApi& plasmaShellApi()
+{
+    static PlasmaShellApi api;
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+    static QLibrary library;
+    static bool resolved = false;
+    if (resolved) {
+        return api;
+    }
+    resolved = true;
+
+    // Plasma 6 currently exposes this helper from libPlasmaQuick.so.7.
+    // Keep it runtime-only so non-Plasma desktops need no KDE dependency.
+    library.setFileNameAndVersion(QStringLiteral("PlasmaQuick"), 7);
+    if (!library.load()) {
+        return api;
+    }
+    api.getWindow = reinterpret_cast<GetPlasmaShellWindow>(
+      library.resolve("_ZN29PlasmaShellWaylandIntegration3getEP7QWindow"));
+    api.setPosition = reinterpret_cast<SetPlasmaShellPosition>(library.resolve(
+      "_ZN29PlasmaShellWaylandIntegration11setPositionERK6QPoint"));
+#endif
+    return api;
+}
+
 }
 
 AnchoredWindowPlacement anchoredWindowPlacement(
@@ -91,20 +126,13 @@ AnchoredWindowPlacement anchoredWindowPlacement(
              globalWindowGeometry.size() };
 }
 
-bool positionWaylandWindow(QWidget* widget,
-                           const QRect& globalWindowGeometry)
+WaylandWindowPositioning positionWaylandWindow(
+  QWidget* widget,
+  const QRect& globalWindowGeometry)
 {
     if (!widget || globalWindowGeometry.isEmpty() ||
         QGuiApplication::platformName() != QLatin1String("wayland")) {
-        return false;
-    }
-
-    LayerShellApi& api = layerShellApi();
-    if (!api.available()) {
-        qWarning() << QObject::tr(
-          "LayerShellQt is unavailable; Wayland may place the pinned window "
-          "automatically");
-        return false;
+        return WaylandWindowPositioning::Unavailable;
     }
 
     QScreen* screen = QGuiApplication::screenAt(globalWindowGeometry.center());
@@ -112,20 +140,39 @@ bool positionWaylandWindow(QWidget* widget,
         screen = QGuiApplication::primaryScreen();
     }
     if (!screen) {
-        return false;
+        return WaylandWindowPositioning::Unavailable;
     }
 
     widget->setGeometry(globalWindowGeometry);
     widget->winId();
     QWindow* nativeWindow = widget->windowHandle();
     if (!nativeWindow) {
-        return false;
+        return WaylandWindowPositioning::Unavailable;
     }
     nativeWindow->setScreen(screen);
 
+    const QString desktop = qEnvironmentVariable("XDG_CURRENT_DESKTOP");
+    PlasmaShellApi& plasmaApi = plasmaShellApi();
+    if (desktop.contains(QLatin1String("KDE"), Qt::CaseInsensitive) &&
+        plasmaApi.available()) {
+        QObject* plasmaWindow = plasmaApi.getWindow(nativeWindow);
+        if (plasmaWindow) {
+            plasmaApi.setPosition(plasmaWindow,
+                                  globalWindowGeometry.topLeft());
+            return WaylandWindowPositioning::PlasmaShell;
+        }
+    }
+
+    LayerShellApi& api = layerShellApi();
+    if (!api.available()) {
+        qWarning() << QObject::tr(
+          "No supported Wayland window-positioning protocol is available");
+        return WaylandWindowPositioning::Unavailable;
+    }
+
     QObject* layerWindow = api.getWindow(nativeWindow);
     if (!layerWindow) {
-        return false;
+        return WaylandWindowPositioning::Unavailable;
     }
 
     const AnchoredWindowPlacement placement =
@@ -138,5 +185,5 @@ bool positionWaylandWindow(QWidget* widget,
     api.setLayer(layerWindow, LAYER_SHELL_LAYER_TOP);
     api.setKeyboardInteractivity(layerWindow,
                                  LAYER_SHELL_KEYBOARD_ON_DEMAND);
-    return true;
+    return WaylandWindowPositioning::LayerShell;
 }

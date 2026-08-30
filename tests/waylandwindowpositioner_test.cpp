@@ -57,16 +57,24 @@ int main(int argc, char** argv)
     window.setStyleSheet(QStringLiteral("background: #e03030"));
     const QRect requested(screen->geometry().topLeft() + QPoint(80, 60),
                           QSize(240, 120));
-    require(positionWaylandWindow(&window, requested),
-            "LayerShellQt could not configure the live test window");
+    const WaylandWindowPositioning positioning =
+      positionWaylandWindow(&window, requested);
+    require(positioning == WaylandWindowPositioning::PlasmaShell,
+            "KDE did not select the movable Plasma shell window path");
     window.show();
 
+    const QRect moved = requested.translated(320, 180);
+    QTimer::singleShot(250, &app, [&]() {
+        require(positionWaylandWindow(&window, moved) !=
+                  WaylandWindowPositioning::Unavailable,
+                "Wayland positioning could not move the live test window");
+    });
     const int duration = qEnvironmentVariableIntValue(
       "FLAMESHOT_TEST_DURATION_MS");
     QTimer::singleShot(duration > 0 ? duration : 750, &app, [&]() {
-        require(window.geometry() == requested,
+        require(window.geometry() == moved,
                 "Wayland compositor changed the requested pin geometry");
-        qInfo() << "live Wayland placement configured at" << requested
+        qInfo() << "live Wayland placement configured at" << moved
                 << "reported geometry" << window.geometry();
         app.quit();
     });
