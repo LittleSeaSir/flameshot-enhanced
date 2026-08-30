@@ -41,6 +41,7 @@
 #include <QPainter>
 #include <QScreen>
 #include <QShortcut>
+#include <QShowEvent>
 #include <QWindow>
 
 #if !defined(DISABLE_UPDATE_CHECKER)
@@ -352,14 +353,14 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
     connect(&m_xywhTimer, &QTimer::timeout, this, &CaptureWidget::xywhTick);
     m_xywhTimer.setSingleShot(true);
     setAttribute(Qt::WA_DeleteOnClose);
+    setAttribute(Qt::WA_QuitOnClose, false);
     setMouseTracking(true);
     m_opacity = m_config.contrastOpacity();
     m_uiColor = m_config.uiColor();
     m_contrastUiColor = m_config.contrastUiColor();
 
-    // Build a screen-sized editor canvas and place the pinned image at its
-    // actual screen-local position. A small pixmap drawn at (0, 0) in a
-    // fullscreen widget makes annotations and export cropping disagree.
+    // A pinned image edits in place: the editor itself has the same geometry
+    // as the pin, so the desktop around it remains visible and interactive.
     QScreen* selectedScreen = pinGeometry.isNull()
                                 ? QGuiAppCurrentScreen().currentScreen()
                                 : QGuiApplication::screenAt(
@@ -373,7 +374,7 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
       preloaded, pinGeometry, screenGeometry, canvasDpr);
     m_context.screenshot = editorLayout.canvas;
     m_context.origScreenshot = editorLayout.canvas;
-    m_context.fullscreen = true;
+    m_context.fullscreen = false;
     m_context.color = m_config.drawColor();
     m_context.widgetOffset = mapToGlobal(QPoint(0, 0));
     m_context.mousePos = mapFromGlobal(QCursor::pos());
@@ -384,42 +385,18 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
     // converted back to logical coordinates by initSelection().
     m_context.request.setInitialSelection(editorLayout.initialSelection);
 
-    // Platform-specific window setup (same as fullScreen path)
-#if defined(Q_OS_WIN)
     setWindowFlags(Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint |
-                   Qt::SubWindow);
-    resize(QSize(m_context.screenshot.width() / m_context.screenshot.devicePixelRatio(),
-                 m_context.screenshot.height() / m_context.screenshot.devicePixelRatio()));
-    if (selectedScreen && windowHandle())
-        windowHandle()->setScreen(selectedScreen);
-#elif defined(Q_OS_MACOS)
-    if (!ConfigHandler().useNativeFullscreen()) {
-        setWindowFlags(Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint |
-                       Qt::Tool);
-    }
-    move(selectedScreen->geometry().x(), selectedScreen->geometry().y());
-    resize(selectedScreen->size());
-#else
-    if (DesktopInfo().waylandDetected()) {
-        setWindowFlags(Qt::BypassWindowManagerHint |
-                       Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint |
-                       Qt::Tool);
-    } else {
-        setWindowFlags(Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint |
-                       Qt::Tool);
-    }
-    move(selectedScreen->geometry().topLeft());
-    resize(selectedScreen->size());
-    if (selectedScreen && windowHandle())
-        windowHandle()->setScreen(selectedScreen);
-#endif
+                   Qt::Tool);
+    setWindowTitle(QStringLiteral("flameshot-pin-editor"));
+    setAttribute(Qt::WA_TranslucentBackground);
+    m_deferredWindowGeometry = editorLayout.windowGeometry;
+    setGeometry(m_deferredWindowGeometry);
 
-    // move() can be deferred by the window system, but export geometry needs
-    // the target screen origin immediately.
-    m_context.widgetOffset = screenGeometry.topLeft();
+    // Keep export coordinates stable even on window systems which apply the
+    // requested position only after the window is mapped.
+    m_context.widgetOffset = editorLayout.windowGeometry.topLeft();
 
-    QRect area = selectedScreen->geometry();
-    area.moveTo(0, 0);
+    const QRect area(QPoint(0, 0), editorLayout.windowGeometry.size());
 
     m_buttonHandler = new ButtonHandler(this);
     m_buttonHandler->updateScreenRegions({ area });
@@ -1497,8 +1474,22 @@ void CaptureWidget::resizeEvent(QResizeEvent* e)
     QWidget::resizeEvent(e);
     m_context.widgetOffset = mapToGlobal(QPoint(0, 0));
     if (!m_context.fullscreen) {
-        m_panel->setFixedHeight(height());
-        m_buttonHandler->updateScreenRegions(rect());
+        if (m_panel) {
+            m_panel->setFixedHeight(height());
+        }
+        if (m_buttonHandler) {
+            m_buttonHandler->updateScreenRegions(rect());
+        }
+    }
+}
+
+void CaptureWidget::showEvent(QShowEvent* e)
+{
+    QWidget::showEvent(e);
+    if (!m_deferredWindowGeometry.isNull()) {
+        setGeometry(m_deferredWindowGeometry);
+        m_context.widgetOffset = m_deferredWindowGeometry.topLeft();
+        m_deferredWindowGeometry = QRect();
     }
 }
 

@@ -32,20 +32,21 @@ int main(int argc, char** argv)
       QRect(100, 50, 200, 100),
       2.0);
 
-    require(layout.canvas.size() == QSize(400, 200),
+    require(layout.canvas.size() == QSize(40, 20),
             "editor canvas physical size does not respect DPR");
     require(qFuzzyCompare(layout.canvas.devicePixelRatio(), 2.0),
             "editor canvas lost DPR");
-    require(layout.contentGeometry == QRect(20, 20, 20, 10),
-            "global pin geometry was not converted to screen-local geometry");
-    require(layout.initialSelection == QRect(40, 40, 40, 20),
-            "initial selection is not in physical screen-local coordinates");
+    require(layout.windowGeometry == QRect(120, 70, 20, 10),
+            "pin editor did not preserve the pinned window geometry");
+    require(layout.contentGeometry == QRect(0, 0, 20, 10),
+            "pin content does not fill the editor window");
+    require(layout.initialSelection == QRect(0, 0, 40, 20),
+            "initial selection does not fill the editor window");
 
     const QImage image = layout.canvas.toImage();
-    require(image.pixelColor(50, 50) == QColor(Qt::red),
-            "pinned image was not placed at the expected canvas position");
-    require(image.pixelColor(10, 10) == QColor(32, 32, 32),
-            "editor background was unexpectedly modified");
+    require(image.pixelColor(0, 0) == QColor(Qt::red) &&
+              image.pixelColor(39, 19) == QColor(Qt::red),
+            "pinned image does not cover the entire editor window");
 
     QImage highDpiImage(40, 20, QImage::Format_ARGB32_Premultiplied);
     highDpiImage.fill(Qt::red);
@@ -62,8 +63,8 @@ int main(int argc, char** argv)
       QRect(100, 50, 200, 100),
       2.0);
     const QImage highDpiCanvas = highDpiLayout.canvas.toImage();
-    require(highDpiCanvas.pixelColor(45, 50) == QColor(Qt::red) &&
-              highDpiCanvas.pixelColor(75, 50) == QColor(Qt::blue),
+    require(highDpiCanvas.pixelColor(5, 10) == QColor(Qt::red) &&
+              highDpiCanvas.pixelColor(35, 10) == QColor(Qt::blue),
             "high-DPI pin content was cropped or scaled incorrectly");
 
     qInfo() << "pin editor layout tests passed";

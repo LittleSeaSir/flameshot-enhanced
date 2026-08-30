@@ -189,7 +189,7 @@ CaptureWidget* Flameshot::pinEdit(const QPixmap& pixmap,
         m_captureWindow = nullptr;
     }
     m_captureWindow = new CaptureWidget(pixmap, geometry);
-    m_captureWindow->showFullScreen();
+    m_captureWindow->show();
     m_captureWindow->activateWindow();
     m_captureWindow->raise();
     return m_captureWindow;

@@ -9,6 +9,7 @@
 struct PinEditorLayout
 {
     QPixmap canvas;
+    QRect windowGeometry;
     QRect contentGeometry;
     QRect initialSelection;
 };

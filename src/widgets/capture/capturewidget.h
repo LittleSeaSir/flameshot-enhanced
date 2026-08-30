@@ -29,6 +29,7 @@
 class QLabel;
 class QPaintEvent;
 class QResizeEvent;
+class QShowEvent;
 class QMouseEvent;
 class QShortcut;
 class QNetworkAccessManager;
@@ -112,6 +113,7 @@ protected:
     void keyReleaseEvent(QKeyEvent* keyEvent) override;
     void wheelEvent(QWheelEvent* wheelEvent) override;
     void resizeEvent(QResizeEvent* resizeEvent) override;
+    void showEvent(QShowEvent* showEvent) override;
     void moveEvent(QMoveEvent* moveEvent) override;
     void changeEvent(QEvent* changeEvent) override;
     void closeEvent(QCloseEvent* event) override;
@@ -224,6 +226,7 @@ private:
     QPoint m_activeToolOffsetToMouseOnStart;
     QPoint m_lastWholeStrokeErasePos;
     bool m_wholeStrokeEraseChanged{ false };
+    QRect m_deferredWindowGeometry;
 
     // XYWH display position and timer
     bool m_xywhDisplay;
