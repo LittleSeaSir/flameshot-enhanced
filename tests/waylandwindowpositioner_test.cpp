@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QScreen>
 #include <QTimer>
+#include <QUuid>
 #include <QWidget>
 
 #include <cstdio>
@@ -68,6 +69,8 @@ int main(int argc, char** argv)
     QWidget editor;
     editor.setWindowFlags(Qt::WindowStaysOnTopHint |
                           Qt::FramelessWindowHint | Qt::Tool);
+    editor.setWindowTitle(QStringLiteral("flameshot-position-test-%1").arg(
+      QUuid::createUuid().toString(QUuid::WithoutBraces)));
     editor.setStyleSheet(QStringLiteral("background: #3060e0"));
     QTimer::singleShot(250, &app, [&]() {
         require(positionWaylandWindow(&window, moved) !=
@@ -86,8 +89,13 @@ int main(int argc, char** argv)
     QTimer::singleShot(duration > 0 ? duration : 750, &app, [&]() {
         require(editor.geometry() == editorGeometry,
                 "re-edit window did not preserve the moved pin position");
+        const std::optional<QPoint> kwinTopLeft =
+          kdeWindowTopLeft(editor.windowTitle());
+        require(kwinTopLeft && *kwinTopLeft == editorGeometry.topLeft(),
+                "KWin did not report the positioned window coordinates");
         qInfo() << "live Wayland re-edit configured at" << editorGeometry
-                << "reported geometry" << editor.geometry();
+                << "reported geometry" << editor.geometry()
+                << "KWin top-left" << *kwinTopLeft;
         app.quit();
     });
     return app.exec();

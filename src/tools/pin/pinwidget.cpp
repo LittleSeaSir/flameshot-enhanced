@@ -9,6 +9,7 @@
 #include "utils/screenshotsaver.h"
 #include "utils/waylandwindowpositioner.h"
 
+#include <QCursor>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsOpacityEffect>
 #include <QLabel>
@@ -19,6 +20,7 @@
 #include <QScreen>
 #include <QShortcut>
 #include <QShowEvent>
+#include <QUuid>
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <QWindow>
@@ -45,7 +47,8 @@ PinWidget::PinWidget(const QPixmap& pixmap,
     setFocusPolicy(Qt::StrongFocus);
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_DeleteOnClose);
-    setWindowTitle("flameshot-pin");
+    setWindowTitle(QStringLiteral("flameshot-pin-%1").arg(
+      QUuid::createUuid().toString(QUuid::WithoutBraces)));
     ConfigHandler conf;
     m_baseColor = conf.uiColor();
     m_hoverColor = conf.contrastUiColor();
@@ -174,8 +177,11 @@ void PinWidget::mousePressEvent(QMouseEvent* e)
         QWidget::mousePressEvent(e);
         return;
     }
-    if (m_waylandPositioned) {
-        beginMoveTracking(e->globalPosition().toPoint());
+    if (m_waylandLayerPositioned) {
+        m_dragging = true;
+        m_dragStartGlobal = QCursor::pos();
+        m_dragStartGeometry = m_pinGeometry;
+        grabMouse();
         setCursor(Qt::ClosedHandCursor);
         e->accept();
         return;
@@ -188,8 +194,9 @@ void PinWidget::mousePressEvent(QMouseEvent* e)
 
 void PinWidget::mouseMoveEvent(QMouseEvent* e)
 {
-    if (m_waylandPositioned && m_dragging) {
-        updateTrackedPosition(e->globalPosition().toPoint());
+    if (m_waylandLayerPositioned && m_dragging) {
+        m_pinGeometry = m_dragStartGeometry.translated(
+          QCursor::pos() - m_dragStartGlobal);
         positionWaylandWindow(this, m_pinGeometry);
         e->accept();
         return;
@@ -199,11 +206,15 @@ void PinWidget::mouseMoveEvent(QMouseEvent* e)
 
 void PinWidget::mouseReleaseEvent(QMouseEvent* e)
 {
-    if (m_waylandPositioned && m_dragging &&
+    if (m_waylandLayerPositioned && m_dragging &&
         e->button() == Qt::LeftButton) {
-        updateTrackedPosition(e->globalPosition().toPoint());
+        m_pinGeometry = m_dragStartGeometry.translated(
+          QCursor::pos() - m_dragStartGlobal);
         positionWaylandWindow(this, m_pinGeometry);
         m_dragging = false;
+        if (mouseGrabber() == this) {
+            releaseMouse();
+        }
         unsetCursor();
         e->accept();
         return;
@@ -214,23 +225,8 @@ void PinWidget::mouseReleaseEvent(QMouseEvent* e)
 void PinWidget::moveEvent(QMoveEvent* e)
 {
     QWidget::moveEvent(e);
-    if (!m_waylandPositioned) {
+    if (!m_waylandLayerPositioned) {
         m_pinGeometry.moveTopLeft(e->pos());
-    }
-}
-
-void PinWidget::beginMoveTracking(const QPoint& globalPos)
-{
-    m_dragging = true;
-    m_dragStartGlobal = globalPos;
-    m_dragStartGeometry = m_pinGeometry;
-}
-
-void PinWidget::updateTrackedPosition(const QPoint& globalPos)
-{
-    if (m_dragging) {
-        m_pinGeometry = m_dragStartGeometry.translated(
-          globalPos - m_dragStartGlobal);
     }
 }
 
@@ -295,6 +291,13 @@ void PinWidget::reEdit()
     const QPixmap displayedPixmap = m_label->pixmap();
     if (displayedPixmap.isNull()) {
         return;
+    }
+
+    if (m_waylandPositioned && !m_waylandLayerPositioned) {
+        if (const std::optional<QPoint> actualTopLeft =
+              kdeWindowTopLeft(windowTitle())) {
+            m_pinGeometry.moveTopLeft(*actualTopLeft);
+        }
     }
 
     m_editing = true;

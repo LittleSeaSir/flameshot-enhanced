@@ -6,6 +6,8 @@
 #include <QMargins>
 #include <QRect>
 
+#include <optional>
+
 class QWidget;
 
 enum class WaylandWindowPositioning
@@ -31,3 +33,5 @@ AnchoredWindowPlacement anchoredWindowPlacement(
 WaylandWindowPositioning positionWaylandWindow(
   QWidget* widget,
   const QRect& globalWindowGeometry);
+
+std::optional<QPoint> kdeWindowTopLeft(const QString& windowTitle);

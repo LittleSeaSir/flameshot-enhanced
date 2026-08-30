@@ -11,6 +11,13 @@
 #include <QWidget>
 #include <QWindow>
 
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+#include <QDBusArgument>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QRegularExpression>
+#endif
+
 namespace {
 
 constexpr int LAYER_SHELL_ANCHOR_TOP = 1;
@@ -186,4 +193,82 @@ WaylandWindowPositioning positionWaylandWindow(
     api.setKeyboardInteractivity(layerWindow,
                                  LAYER_SHELL_KEYBOARD_ON_DEMAND);
     return WaylandWindowPositioning::LayerShell;
+}
+
+std::optional<QPoint> kdeWindowTopLeft(const QString& windowTitle)
+{
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+    if (windowTitle.isEmpty() ||
+        QGuiApplication::platformName() != QLatin1String("wayland") ||
+        !qEnvironmentVariable("XDG_CURRENT_DESKTOP")
+           .contains(QLatin1String("KDE"), Qt::CaseInsensitive)) {
+        return std::nullopt;
+    }
+
+    QDBusMessage match = QDBusMessage::createMethodCall(
+      QStringLiteral("org.kde.KWin"),
+      QStringLiteral("/WindowsRunner"),
+      QStringLiteral("org.kde.krunner1"),
+      QStringLiteral("Match"));
+    match << windowTitle;
+    const QDBusMessage matchReply =
+      QDBusConnection::sessionBus().call(match, QDBus::Block, 1000);
+    if (matchReply.type() != QDBusMessage::ReplyMessage ||
+        matchReply.arguments().isEmpty()) {
+        return std::nullopt;
+    }
+
+    QString windowUuid;
+    const QDBusArgument matches =
+      matchReply.arguments().constFirst().value<QDBusArgument>();
+    matches.beginArray();
+    while (!matches.atEnd()) {
+        QString id;
+        QString text;
+        QString subtext;
+        int category = 0;
+        double relevance = 0.0;
+        QVariantMap properties;
+        matches.beginStructure();
+        matches >> id >> text >> subtext >> category >> relevance >> properties;
+        matches.endStructure();
+        if (text == windowTitle) {
+            const QRegularExpressionMatch uuidMatch =
+              QRegularExpression(QStringLiteral("\\{([^}]+)\\}"))
+                .match(id);
+            if (uuidMatch.hasMatch()) {
+                windowUuid = uuidMatch.captured(1);
+                break;
+            }
+        }
+    }
+    matches.endArray();
+    if (windowUuid.isEmpty()) {
+        return std::nullopt;
+    }
+
+    QDBusMessage info = QDBusMessage::createMethodCall(
+      QStringLiteral("org.kde.KWin"),
+      QStringLiteral("/KWin"),
+      QStringLiteral("org.kde.KWin"),
+      QStringLiteral("getWindowInfo"));
+    info << windowUuid;
+    const QDBusMessage infoReply =
+      QDBusConnection::sessionBus().call(info, QDBus::Block, 1000);
+    if (infoReply.type() != QDBusMessage::ReplyMessage ||
+        infoReply.arguments().isEmpty()) {
+        return std::nullopt;
+    }
+    const QVariantMap windowInfo = qdbus_cast<QVariantMap>(
+      infoReply.arguments().constFirst());
+    if (!windowInfo.contains(QStringLiteral("x")) ||
+        !windowInfo.contains(QStringLiteral("y"))) {
+        return std::nullopt;
+    }
+    return QPoint(qRound(windowInfo.value(QStringLiteral("x")).toDouble()),
+                  qRound(windowInfo.value(QStringLiteral("y")).toDouble()));
+#else
+    Q_UNUSED(windowTitle)
+    return std::nullopt;
+#endif
 }
