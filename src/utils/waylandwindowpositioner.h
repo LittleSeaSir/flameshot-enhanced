@@ -35,3 +35,5 @@ WaylandWindowPositioning positionWaylandWindow(
   const QRect& globalWindowGeometry);
 
 std::optional<QPoint> kdeWindowTopLeft(const QString& windowTitle);
+std::optional<bool> kdeWindowKeepAbove(const QString& windowTitle);
+bool setKdeWindowKeepAbove(const QString& windowTitle, bool keepAbove);

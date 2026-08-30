@@ -84,15 +84,21 @@ int main(int argc, char** argv)
                 "re-edit window did not use Plasma positioning");
         editor.show();
     });
+    QTimer::singleShot(800, &app, [&]() {
+        require(setKdeWindowKeepAbove(editor.windowTitle(), true),
+                "KWin could not enable keep-above for the pinned window");
+    });
     const int duration = qEnvironmentVariableIntValue(
       "FLAMESHOT_TEST_DURATION_MS");
-    QTimer::singleShot(duration > 0 ? duration : 750, &app, [&]() {
+    QTimer::singleShot(duration > 0 ? duration : 1200, &app, [&]() {
         require(editor.geometry() == editorGeometry,
                 "re-edit window did not preserve the moved pin position");
         const std::optional<QPoint> kwinTopLeft =
           kdeWindowTopLeft(editor.windowTitle());
         require(kwinTopLeft && *kwinTopLeft == editorGeometry.topLeft(),
                 "KWin did not report the positioned window coordinates");
+        require(kdeWindowKeepAbove(editor.windowTitle()) == true,
+                "KWin did not keep the pinned window above other windows");
         qInfo() << "live Wayland re-edit configured at" << editorGeometry
                 << "reported geometry" << editor.geometry()
                 << "KWin top-left" << *kwinTopLeft;

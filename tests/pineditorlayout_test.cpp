@@ -67,6 +67,23 @@ int main(int argc, char** argv)
               highDpiCanvas.pixelColor(35, 10) == QColor(Qt::blue),
             "high-DPI pin content was cropped or scaled incorrectly");
 
+    const PinEditorLayout inPlaceLayout = createPinEditorLayout(
+      content,
+      QRect(120, 70, 20, 10),
+      QRect(100, 50, 200, 100),
+      1.0,
+      PIN_WINDOW_MARGIN);
+    require(inPlaceLayout.windowGeometry == QRect(113, 63, 34, 24),
+            "pin editor outer geometry does not preserve the pin margin");
+    require(inPlaceLayout.contentGeometry == QRect(7, 7, 20, 10),
+            "pin content moved inside the in-place editor");
+    require(inPlaceLayout.initialSelection == QRect(7, 7, 20, 10),
+            "pin editor selection does not match the original content");
+    require(inPlaceLayout.windowGeometry.topLeft() +
+                inPlaceLayout.contentGeometry.topLeft() ==
+              QPoint(120, 70),
+            "accepting a pin edit changes its global content position");
+
     qInfo() << "pin editor layout tests passed";
     return EXIT_SUCCESS;
 }

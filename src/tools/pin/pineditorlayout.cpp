@@ -8,23 +8,28 @@
 PinEditorLayout createPinEditorLayout(const QPixmap& content,
                                       const QRect& globalContentGeometry,
                                       const QRect& screenGeometry,
-                                      qreal devicePixelRatio)
+                                      qreal devicePixelRatio,
+                                      int windowMargin)
 {
     const qreal dpr = devicePixelRatio > 0.0 ? devicePixelRatio : 1.0;
-    QRect windowGeometry = globalContentGeometry;
-    if (windowGeometry.isNull()) {
-        windowGeometry = QRect(
+    const int margin = qMax(0, windowMargin);
+    QRect contentWindowGeometry = globalContentGeometry;
+    if (contentWindowGeometry.isNull()) {
+        contentWindowGeometry = QRect(
           screenGeometry.topLeft(),
           QSize(qRound(content.width() / content.devicePixelRatio()),
                 qRound(content.height() / content.devicePixelRatio())));
     }
+    const QRect windowGeometry = contentWindowGeometry.adjusted(
+      -margin, -margin, margin, margin);
 
     QPixmap canvas(qRound(windowGeometry.width() * dpr),
                    qRound(windowGeometry.height() * dpr));
     canvas.setDevicePixelRatio(dpr);
     canvas.fill(Qt::transparent);
 
-    const QRect contentGeometry(QPoint(0, 0), windowGeometry.size());
+    const QRect contentGeometry(QPoint(margin, margin),
+                                contentWindowGeometry.size());
 
     if (!content.isNull() && !contentGeometry.isEmpty()) {
         QPainter painter(&canvas);

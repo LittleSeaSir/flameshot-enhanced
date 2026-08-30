@@ -6,6 +6,8 @@
 #include <QPixmap>
 #include <QRect>
 
+inline constexpr int PIN_WINDOW_MARGIN = 7;
+
 struct PinEditorLayout
 {
     QPixmap canvas;
@@ -17,4 +19,5 @@ struct PinEditorLayout
 PinEditorLayout createPinEditorLayout(const QPixmap& content,
                                       const QRect& globalContentGeometry,
                                       const QRect& screenGeometry,
-                                      qreal devicePixelRatio);
+                                      qreal devicePixelRatio,
+                                      int windowMargin = 0);

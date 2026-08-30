@@ -373,7 +373,11 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
     const QRect screenGeometry = selectedScreen->geometry();
     const qreal canvasDpr = selectedScreen->devicePixelRatio();
     const PinEditorLayout editorLayout = createPinEditorLayout(
-      preloaded, pinGeometry, screenGeometry, canvasDpr);
+      preloaded,
+      pinGeometry,
+      screenGeometry,
+      canvasDpr,
+      PIN_WINDOW_MARGIN);
     m_context.screenshot = editorLayout.canvas;
     m_context.origScreenshot = editorLayout.canvas;
     m_context.fullscreen = false;
@@ -2466,6 +2470,9 @@ void CaptureWidget::drawErrorMessage(const QString& msg, QPainter* painter)
 
 void CaptureWidget::drawInactiveRegion(QPainter* painter)
 {
+    if (m_pinEditMode) {
+        return;
+    }
     QColor overlayColor(0, 0, 0, m_opacity);
     painter->setBrush(overlayColor);
     QRect r;

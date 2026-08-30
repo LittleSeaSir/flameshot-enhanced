@@ -4,6 +4,7 @@
 #include "pinwidget.h"
 #include "core/flameshot.h"
 #include "core/qguiappcurrentscreen.h"
+#include "tools/pin/pineditorlayout.h"
 #include "utils/confighandler.h"
 #include "utils/globalvalues.h"
 #include "utils/screenshotsaver.h"
@@ -20,13 +21,14 @@
 #include <QScreen>
 #include <QShortcut>
 #include <QShowEvent>
+#include <QTimer>
 #include <QUuid>
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <QWindow>
 
 namespace {
-constexpr int MARGIN = 7;
+constexpr int MARGIN = PIN_WINDOW_MARGIN;
 constexpr int BLUR_RADIUS = 2 * MARGIN;
 constexpr qreal STEP = 0.03;
 constexpr qreal MIN_SIZE = 100.0;
@@ -115,6 +117,16 @@ void PinWidget::showEvent(QShowEvent* event)
     // setGeometry before show() is unreliable — apply it here instead.
     if (!m_waylandPositioned && !m_pinGeometry.isNull()) {
         setGeometry(m_pinGeometry);
+    }
+    if (m_waylandPositioned && !m_waylandLayerPositioned) {
+        QTimer::singleShot(300, this, [this]() {
+            setKdeWindowKeepAbove(windowTitle(), true);
+        });
+        QTimer::singleShot(800, this, [this]() {
+            if (kdeWindowKeepAbove(windowTitle()) != true) {
+                setKdeWindowKeepAbove(windowTitle(), true);
+            }
+        });
     }
 }
 

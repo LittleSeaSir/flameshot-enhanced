@@ -95,6 +95,86 @@ LayerShellApi& layerShellApi()
     return api;
 }
 
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+struct KdeWindowMatch
+{
+    QString runnerId;
+    QString uuid;
+};
+
+bool kdeWindowQueriesAvailable(const QString& windowTitle)
+{
+    return !windowTitle.isEmpty() &&
+           QGuiApplication::platformName() == QLatin1String("wayland") &&
+           qEnvironmentVariable("XDG_CURRENT_DESKTOP")
+             .contains(QLatin1String("KDE"), Qt::CaseInsensitive);
+}
+
+std::optional<KdeWindowMatch> findKdeWindow(const QString& windowTitle)
+{
+    if (!kdeWindowQueriesAvailable(windowTitle)) {
+        return std::nullopt;
+    }
+
+    QDBusMessage match = QDBusMessage::createMethodCall(
+      QStringLiteral("org.kde.KWin"),
+      QStringLiteral("/WindowsRunner"),
+      QStringLiteral("org.kde.krunner1"),
+      QStringLiteral("Match"));
+    match << windowTitle;
+    const QDBusMessage reply =
+      QDBusConnection::sessionBus().call(match, QDBus::Block, 1000);
+    if (reply.type() != QDBusMessage::ReplyMessage ||
+        reply.arguments().isEmpty()) {
+        return std::nullopt;
+    }
+
+    const QDBusArgument matches =
+      reply.arguments().constFirst().value<QDBusArgument>();
+    matches.beginArray();
+    while (!matches.atEnd()) {
+        QString id;
+        QString text;
+        QString subtext;
+        int category = 0;
+        double relevance = 0.0;
+        QVariantMap properties;
+        matches.beginStructure();
+        matches >> id >> text >> subtext >> category >> relevance >> properties;
+        matches.endStructure();
+        if (text != windowTitle) {
+            continue;
+        }
+        const QRegularExpressionMatch uuidMatch =
+          QRegularExpression(QStringLiteral("\\{([^}]+)\\}"))
+            .match(id);
+        if (uuidMatch.hasMatch()) {
+            matches.endArray();
+            return KdeWindowMatch{ id, uuidMatch.captured(1) };
+        }
+    }
+    matches.endArray();
+    return std::nullopt;
+}
+
+std::optional<QVariantMap> kdeWindowInfo(const KdeWindowMatch& window)
+{
+    QDBusMessage info = QDBusMessage::createMethodCall(
+      QStringLiteral("org.kde.KWin"),
+      QStringLiteral("/KWin"),
+      QStringLiteral("org.kde.KWin"),
+      QStringLiteral("getWindowInfo"));
+    info << window.uuid;
+    const QDBusMessage reply =
+      QDBusConnection::sessionBus().call(info, QDBus::Block, 1000);
+    if (reply.type() != QDBusMessage::ReplyMessage ||
+        reply.arguments().isEmpty()) {
+        return std::nullopt;
+    }
+    return qdbus_cast<QVariantMap>(reply.arguments().constFirst());
+}
+#endif
+
 PlasmaShellApi& plasmaShellApi()
 {
     static PlasmaShellApi api;
@@ -198,77 +278,76 @@ WaylandWindowPositioning positionWaylandWindow(
 std::optional<QPoint> kdeWindowTopLeft(const QString& windowTitle)
 {
 #if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
-    if (windowTitle.isEmpty() ||
-        QGuiApplication::platformName() != QLatin1String("wayland") ||
-        !qEnvironmentVariable("XDG_CURRENT_DESKTOP")
-           .contains(QLatin1String("KDE"), Qt::CaseInsensitive)) {
+    const std::optional<KdeWindowMatch> window = findKdeWindow(windowTitle);
+    if (!window) {
         return std::nullopt;
     }
-
-    QDBusMessage match = QDBusMessage::createMethodCall(
-      QStringLiteral("org.kde.KWin"),
-      QStringLiteral("/WindowsRunner"),
-      QStringLiteral("org.kde.krunner1"),
-      QStringLiteral("Match"));
-    match << windowTitle;
-    const QDBusMessage matchReply =
-      QDBusConnection::sessionBus().call(match, QDBus::Block, 1000);
-    if (matchReply.type() != QDBusMessage::ReplyMessage ||
-        matchReply.arguments().isEmpty()) {
+    const std::optional<QVariantMap> info = kdeWindowInfo(*window);
+    if (!info || !info->contains(QStringLiteral("x")) ||
+        !info->contains(QStringLiteral("y"))) {
         return std::nullopt;
     }
-
-    QString windowUuid;
-    const QDBusArgument matches =
-      matchReply.arguments().constFirst().value<QDBusArgument>();
-    matches.beginArray();
-    while (!matches.atEnd()) {
-        QString id;
-        QString text;
-        QString subtext;
-        int category = 0;
-        double relevance = 0.0;
-        QVariantMap properties;
-        matches.beginStructure();
-        matches >> id >> text >> subtext >> category >> relevance >> properties;
-        matches.endStructure();
-        if (text == windowTitle) {
-            const QRegularExpressionMatch uuidMatch =
-              QRegularExpression(QStringLiteral("\\{([^}]+)\\}"))
-                .match(id);
-            if (uuidMatch.hasMatch()) {
-                windowUuid = uuidMatch.captured(1);
-                break;
-            }
-        }
-    }
-    matches.endArray();
-    if (windowUuid.isEmpty()) {
-        return std::nullopt;
-    }
-
-    QDBusMessage info = QDBusMessage::createMethodCall(
-      QStringLiteral("org.kde.KWin"),
-      QStringLiteral("/KWin"),
-      QStringLiteral("org.kde.KWin"),
-      QStringLiteral("getWindowInfo"));
-    info << windowUuid;
-    const QDBusMessage infoReply =
-      QDBusConnection::sessionBus().call(info, QDBus::Block, 1000);
-    if (infoReply.type() != QDBusMessage::ReplyMessage ||
-        infoReply.arguments().isEmpty()) {
-        return std::nullopt;
-    }
-    const QVariantMap windowInfo = qdbus_cast<QVariantMap>(
-      infoReply.arguments().constFirst());
-    if (!windowInfo.contains(QStringLiteral("x")) ||
-        !windowInfo.contains(QStringLiteral("y"))) {
-        return std::nullopt;
-    }
-    return QPoint(qRound(windowInfo.value(QStringLiteral("x")).toDouble()),
-                  qRound(windowInfo.value(QStringLiteral("y")).toDouble()));
+    return QPoint(qRound(info->value(QStringLiteral("x")).toDouble()),
+                  qRound(info->value(QStringLiteral("y")).toDouble()));
 #else
     Q_UNUSED(windowTitle)
     return std::nullopt;
+#endif
+}
+
+std::optional<bool> kdeWindowKeepAbove(const QString& windowTitle)
+{
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+    const std::optional<KdeWindowMatch> window = findKdeWindow(windowTitle);
+    if (!window) {
+        return std::nullopt;
+    }
+    const std::optional<QVariantMap> info = kdeWindowInfo(*window);
+    if (!info || !info->contains(QStringLiteral("keepAbove"))) {
+        return std::nullopt;
+    }
+    return info->value(QStringLiteral("keepAbove")).toBool();
+#else
+    Q_UNUSED(windowTitle)
+    return std::nullopt;
+#endif
+}
+
+bool setKdeWindowKeepAbove(const QString& windowTitle, bool keepAbove)
+{
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+    const std::optional<KdeWindowMatch> window = findKdeWindow(windowTitle);
+    if (!window) {
+        return false;
+    }
+    const std::optional<QVariantMap> info = kdeWindowInfo(*window);
+    if (!info || !info->contains(QStringLiteral("keepAbove"))) {
+        return false;
+    }
+    if (info->value(QStringLiteral("keepAbove")).toBool() == keepAbove) {
+        return true;
+    }
+
+    QDBusMessage activate = QDBusMessage::createMethodCall(
+      QStringLiteral("org.kde.KWin"),
+      QStringLiteral("/WindowsRunner"),
+      QStringLiteral("org.kde.krunner1"),
+      QStringLiteral("Run"));
+    activate << window->runnerId << QString();
+    QDBusConnection::sessionBus().call(activate, QDBus::Block, 1000);
+
+    QDBusMessage toggle = QDBusMessage::createMethodCall(
+      QStringLiteral("org.kde.kglobalaccel"),
+      QStringLiteral("/component/kwin"),
+      QStringLiteral("org.kde.kglobalaccel.Component"),
+      QStringLiteral("invokeShortcut"));
+    toggle << QStringLiteral("Window Above Other Windows");
+    const QDBusMessage reply =
+      QDBusConnection::sessionBus().call(toggle, QDBus::Block, 1000);
+    return reply.type() == QDBusMessage::ReplyMessage;
+#else
+    Q_UNUSED(windowTitle)
+    Q_UNUSED(keepAbove)
+    return false;
 #endif
 }
