@@ -1,0 +1,41 @@
+find_package(Qt${QT_VERSION_MAJOR} CONFIG REQUIRED Gui Widgets)
+
+add_executable(
+  strokesmoother_test
+  strokesmoother_test.cpp
+  ${CMAKE_SOURCE_DIR}/src/tools/pencil/strokesmoother.cpp)
+
+target_include_directories(strokesmoother_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(strokesmoother_test PRIVATE Qt${QT_VERSION_MAJOR}::Gui)
+target_compile_features(strokesmoother_test PRIVATE cxx_std_20)
+
+add_test(NAME strokesmoother_test COMMAND strokesmoother_test)
+
+add_executable(
+  annotation_tools_test
+  annotation_tools_test.cpp
+  ${CMAKE_SOURCE_DIR}/src/tools/capturetool.h
+  ${CMAKE_SOURCE_DIR}/src/tools/abstractpathtool.cpp
+  ${CMAKE_SOURCE_DIR}/src/tools/eraser/erasertool.cpp
+  ${CMAKE_SOURCE_DIR}/src/tools/pencil/penciltool.cpp
+  ${CMAKE_SOURCE_DIR}/src/tools/pencil/strokesmoother.cpp
+  ${CMAKE_SOURCE_DIR}/src/utils/colorutils.cpp
+  ${CMAKE_SOURCE_DIR}/src/utils/pathinfo.cpp
+  ${CMAKE_SOURCE_DIR}/src/widgets/capture/capturetoolobjects.cpp)
+target_include_directories(annotation_tools_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(annotation_tools_test PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+target_compile_features(annotation_tools_test PRIVATE cxx_std_20)
+target_compile_definitions(annotation_tools_test PRIVATE APP_PREFIX="${CMAKE_INSTALL_PREFIX}")
+set_target_properties(annotation_tools_test PROPERTIES AUTOMOC ON)
+add_test(NAME annotation_tools_test COMMAND annotation_tools_test)
+set_tests_properties(annotation_tools_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(
+  pineditorlayout_test
+  pineditorlayout_test.cpp
+  ${CMAKE_SOURCE_DIR}/src/tools/pin/pineditorlayout.cpp)
+target_include_directories(pineditorlayout_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(pineditorlayout_test PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+target_compile_features(pineditorlayout_test PRIVATE cxx_std_20)
+add_test(NAME pineditorlayout_test COMMAND pineditorlayout_test)
+set_tests_properties(pineditorlayout_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

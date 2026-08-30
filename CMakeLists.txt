@@ -85,6 +85,7 @@ option(USE_LAUNCHER_ABSOLUTE_PATH "Use absolute path for the desktop launcher" O
 option(USE_WAYLAND_CLIPBOARD "USE KF Gui Wayland Clipboard" OFF)
 option(DISABLE_UPDATE_CHECKER "Disable check for updates" OFF)
 option(ENABLE_IMGUR "Enable Imgur Uploader" OFF)
+option(FLAMESHOT_BUILD_TESTS "Build Flameshot unit tests" OFF)
 
 if(ENABLE_IMGUR)
   add_compile_definitions(ENABLE_IMGUR)
@@ -150,6 +151,11 @@ if(WIN32 OR APPLE)
 endif()
 
 add_subdirectory(src)
+
+if(FLAMESHOT_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif()
 
 # CPack
 set(CPACK_PACKAGE_VENDOR "flameshot-org")
