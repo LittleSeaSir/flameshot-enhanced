@@ -7,11 +7,13 @@
 #include "utils/confighandler.h"
 #include "utils/globalvalues.h"
 #include "utils/screenshotsaver.h"
+#include "utils/waylandwindowpositioner.h"
 
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsOpacityEffect>
 #include <QLabel>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QPinchGesture>
 #include <QScreen>
 #include <QShortcut>
@@ -92,6 +94,10 @@ PinWidget::PinWidget(const QPixmap& pixmap,
             &QWidget::customContextMenuRequested,
             this,
             &PinWidget::showContextMenu);
+
+    setGeometry(m_pinGeometry);
+    m_waylandLayerPositioned =
+      positionWaylandWindow(this, m_pinGeometry);
 }
 
 void PinWidget::showEvent(QShowEvent* event)
@@ -99,7 +105,7 @@ void PinWidget::showEvent(QShowEvent* event)
     QWidget::showEvent(event);
     // On Wayland the platform window handle is created during show();
     // setGeometry before show() is unreliable — apply it here instead.
-    if (!m_pinGeometry.isNull()) {
+    if (!m_waylandLayerPositioned && !m_pinGeometry.isNull()) {
         setGeometry(m_pinGeometry);
     }
 }
@@ -159,13 +165,37 @@ void PinWidget::mouseDoubleClickEvent(QMouseEvent*)
 
 void PinWidget::mousePressEvent(QMouseEvent* e)
 {
+    if (m_waylandLayerPositioned) {
+        m_dragStartGlobal = e->globalPosition().toPoint();
+        m_dragStartGeometry = m_pinGeometry;
+        e->accept();
+        return;
+    }
     if (QWindow* window = windowHandle(); window != nullptr) {
         window->startSystemMove();
         return;
     }
 }
 
-void PinWidget::mouseMoveEvent(QMouseEvent* e) {}
+void PinWidget::mouseMoveEvent(QMouseEvent* e)
+{
+    if (m_waylandLayerPositioned &&
+        e->buttons().testFlag(Qt::LeftButton)) {
+        m_pinGeometry = m_dragStartGeometry.translated(
+          e->globalPosition().toPoint() - m_dragStartGlobal);
+        positionWaylandWindow(this, m_pinGeometry);
+        e->accept();
+    }
+}
+
+void PinWidget::mouseReleaseEvent(QMouseEvent* e)
+{
+    if (m_waylandLayerPositioned && e->button() == Qt::LeftButton) {
+        e->accept();
+        return;
+    }
+    QWidget::mouseReleaseEvent(e);
+}
 
 void PinWidget::keyPressEvent(QKeyEvent* event)
 {
@@ -231,8 +261,11 @@ void PinWidget::reEdit()
     }
 
     m_editing = true;
-    const QRect contentGeometry(m_label->mapToGlobal(QPoint(0, 0)),
-                                m_label->size());
+    const QPoint contentTopLeft =
+      m_waylandLayerPositioned
+        ? m_pinGeometry.topLeft() + QPoint(MARGIN, MARGIN)
+        : m_label->mapToGlobal(QPoint(0, 0));
+    const QRect contentGeometry(contentTopLeft, m_label->size());
     hide();
     CaptureWidget* editor =
       Flameshot::instance()->pinEdit(displayedPixmap, contentGeometry);
@@ -309,6 +342,10 @@ void PinWidget::paintEvent(QPaintEvent* event)
 
         m_label->setPixmap(pix);
         adjustSize();
+        m_pinGeometry.setSize(size());
+        if (m_waylandLayerPositioned) {
+            positionWaylandWindow(this, m_pinGeometry);
+        }
         m_sizeChanged = false;
     }
 }

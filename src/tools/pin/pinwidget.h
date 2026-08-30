@@ -23,6 +23,7 @@ protected:
     void mouseDoubleClickEvent(QMouseEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
+    void mouseReleaseEvent(QMouseEvent*) override;
     void keyPressEvent(QKeyEvent*) override;
     void enterEvent(QEnterEvent*) override;
     void leaveEvent(QEvent*) override;
@@ -58,6 +59,9 @@ private:
     qreal m_currentStepScaleFactor{ 1 };
     bool m_sizeChanged{ false };
     bool m_editing{ false };
+    bool m_waylandLayerPositioned{ false };
+    QPoint m_dragStartGlobal;
+    QRect m_dragStartGeometry;
 
 private slots:
     void showContextMenu(const QPoint& pos);

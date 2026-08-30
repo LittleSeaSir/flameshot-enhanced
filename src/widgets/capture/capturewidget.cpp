@@ -21,6 +21,7 @@
 #include "utils/abstractlogger.h"
 #include "utils/screengrabber.h"
 #include "utils/screenshotsaver.h"
+#include "utils/waylandwindowpositioner.h"
 #include "widgets/capture/colorpicker.h"
 #include "widgets/capture/hovereventfilter.h"
 #include "widgets/capture/modificationcommand.h"
@@ -459,6 +460,8 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
         OverlayMessage::push(m_helpMessage);
     }
     initQuitPrompt();
+    m_waylandLayerPositioned =
+      positionWaylandWindow(this, m_deferredWindowGeometry);
     updateCursor();
 }
 
@@ -1487,7 +1490,9 @@ void CaptureWidget::showEvent(QShowEvent* e)
 {
     QWidget::showEvent(e);
     if (!m_deferredWindowGeometry.isNull()) {
-        setGeometry(m_deferredWindowGeometry);
+        if (!m_waylandLayerPositioned) {
+            setGeometry(m_deferredWindowGeometry);
+        }
         m_context.widgetOffset = m_deferredWindowGeometry.topLeft();
         m_deferredWindowGeometry = QRect();
     }

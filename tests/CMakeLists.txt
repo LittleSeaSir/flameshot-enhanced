@@ -39,3 +39,13 @@ target_link_libraries(pineditorlayout_test PRIVATE Qt${QT_VERSION_MAJOR}::Widget
 target_compile_features(pineditorlayout_test PRIVATE cxx_std_20)
 add_test(NAME pineditorlayout_test COMMAND pineditorlayout_test)
 set_tests_properties(pineditorlayout_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(
+  waylandwindowpositioner_test
+  waylandwindowpositioner_test.cpp
+  ${CMAKE_SOURCE_DIR}/src/utils/waylandwindowpositioner.cpp)
+target_include_directories(waylandwindowpositioner_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(waylandwindowpositioner_test PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+target_compile_features(waylandwindowpositioner_test PRIVATE cxx_std_20)
+add_test(NAME waylandwindowpositioner_test COMMAND waylandwindowpositioner_test)
+set_tests_properties(waylandwindowpositioner_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
