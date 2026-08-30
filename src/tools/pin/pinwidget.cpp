@@ -176,7 +176,6 @@ void PinWidget::mousePressEvent(QMouseEvent* e)
     }
     if (m_waylandPositioned) {
         beginMoveTracking(e->globalPosition().toPoint());
-        grabMouse();
         setCursor(Qt::ClosedHandCursor);
         e->accept();
         return;
@@ -205,9 +204,6 @@ void PinWidget::mouseReleaseEvent(QMouseEvent* e)
         updateTrackedPosition(e->globalPosition().toPoint());
         positionWaylandWindow(this, m_pinGeometry);
         m_dragging = false;
-        if (mouseGrabber() == this) {
-            releaseMouse();
-        }
         unsetCursor();
         e->accept();
         return;
