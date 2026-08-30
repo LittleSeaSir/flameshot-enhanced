@@ -46,6 +46,8 @@ private:
     void increaseOpacity();
     void decreaseOpacity();
     void reEdit();
+    void beginMoveTracking(const QPoint& globalPos);
+    void updateTrackedPosition(const QPoint& globalPos);
 
     QPixmap m_pixmap;
     QVBoxLayout* m_layout;

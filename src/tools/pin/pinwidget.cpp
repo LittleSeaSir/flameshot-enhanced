@@ -9,7 +9,6 @@
 #include "utils/screenshotsaver.h"
 #include "utils/waylandwindowpositioner.h"
 
-#include <QCursor>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsOpacityEffect>
 #include <QLabel>
@@ -175,10 +174,8 @@ void PinWidget::mousePressEvent(QMouseEvent* e)
         QWidget::mousePressEvent(e);
         return;
     }
-    if (m_waylandLayerPositioned) {
-        m_dragging = true;
-        m_dragStartGlobal = QCursor::pos();
-        m_dragStartGeometry = m_pinGeometry;
+    if (m_waylandPositioned) {
+        beginMoveTracking(e->globalPosition().toPoint());
         grabMouse();
         setCursor(Qt::ClosedHandCursor);
         e->accept();
@@ -192,9 +189,8 @@ void PinWidget::mousePressEvent(QMouseEvent* e)
 
 void PinWidget::mouseMoveEvent(QMouseEvent* e)
 {
-    if (m_waylandLayerPositioned && m_dragging) {
-        m_pinGeometry = m_dragStartGeometry.translated(
-          QCursor::pos() - m_dragStartGlobal);
+    if (m_waylandPositioned && m_dragging) {
+        updateTrackedPosition(e->globalPosition().toPoint());
         positionWaylandWindow(this, m_pinGeometry);
         e->accept();
         return;
@@ -204,10 +200,9 @@ void PinWidget::mouseMoveEvent(QMouseEvent* e)
 
 void PinWidget::mouseReleaseEvent(QMouseEvent* e)
 {
-    if (m_waylandLayerPositioned && m_dragging &&
+    if (m_waylandPositioned && m_dragging &&
         e->button() == Qt::LeftButton) {
-        m_pinGeometry = m_dragStartGeometry.translated(
-          QCursor::pos() - m_dragStartGlobal);
+        updateTrackedPosition(e->globalPosition().toPoint());
         positionWaylandWindow(this, m_pinGeometry);
         m_dragging = false;
         if (mouseGrabber() == this) {
@@ -223,8 +218,23 @@ void PinWidget::mouseReleaseEvent(QMouseEvent* e)
 void PinWidget::moveEvent(QMoveEvent* e)
 {
     QWidget::moveEvent(e);
-    if (!m_waylandLayerPositioned) {
+    if (!m_waylandPositioned) {
         m_pinGeometry.moveTopLeft(e->pos());
+    }
+}
+
+void PinWidget::beginMoveTracking(const QPoint& globalPos)
+{
+    m_dragging = true;
+    m_dragStartGlobal = globalPos;
+    m_dragStartGeometry = m_pinGeometry;
+}
+
+void PinWidget::updateTrackedPosition(const QPoint& globalPos)
+{
+    if (m_dragging) {
+        m_pinGeometry = m_dragStartGeometry.translated(
+          globalPos - m_dragStartGlobal);
     }
 }
 
