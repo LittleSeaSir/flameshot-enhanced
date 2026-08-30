@@ -339,6 +339,7 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
   , m_startMove(false)
   , m_clipboardWorkaroundDone(false)
 {
+    m_pinEditMode = true;
     m_undoStack.setUndoLimit(ConfigHandler().undoLimit());
     m_context.circleCount = 1;
 
@@ -391,7 +392,12 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
     setWindowTitle(QStringLiteral("flameshot-pin-editor"));
     setAttribute(Qt::WA_TranslucentBackground);
     m_deferredWindowGeometry = editorLayout.windowGeometry;
-    setGeometry(m_deferredWindowGeometry);
+    m_waylandPositioned =
+      positionWaylandWindow(this, m_deferredWindowGeometry) !=
+      WaylandWindowPositioning::Unavailable;
+    if (!m_waylandPositioned) {
+        setGeometry(m_deferredWindowGeometry);
+    }
 
     // Keep export coordinates stable even on window systems which apply the
     // requested position only after the window is mapped.
@@ -405,6 +411,7 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
 
     initButtons();
     initSelection();
+    m_selection->setIgnoreMouse(true);
     initShortcuts();
     if (m_config.showMagnifier()) {
         m_magnifier = new MagnifierWidget(
@@ -460,9 +467,6 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
         OverlayMessage::push(m_helpMessage);
     }
     initQuitPrompt();
-    m_waylandPositioned =
-      positionWaylandWindow(this, m_deferredWindowGeometry) !=
-      WaylandWindowPositioning::Unavailable;
     updateCursor();
 }
 
@@ -516,6 +520,10 @@ void CaptureWidget::initButtons()
             buttonList->removeOne(CaptureTool::TYPE_OPEN_APP);
             buttonList->removeOne(CaptureTool::TYPE_PIN);
         }
+    }
+    if (m_pinEditMode) {
+        allButtonTypes.removeOne(CaptureTool::TYPE_MOVESELECTION);
+        visibleButtonTypes.removeOne(CaptureTool::TYPE_MOVESELECTION);
     }
     QVector<CaptureToolButton*> vectorButtons;
 
@@ -2064,6 +2072,8 @@ void CaptureWidget::updateCursor()
 {
     if (m_colorPicker && m_colorPicker->isVisible()) {
         setCursor(Qt::ArrowCursor);
+    } else if (m_pinEditMode && !m_activeButton) {
+        setCursor(Qt::CrossCursor);
     } else if (m_activeButton != nullptr &&
                activeButtonToolType() != CaptureTool::TYPE_MOVESELECTION) {
         setCursor(Qt::CrossCursor);
@@ -2079,6 +2089,11 @@ void CaptureWidget::updateCursor()
 
 void CaptureWidget::updateSelectionState()
 {
+    if (m_pinEditMode) {
+        m_selection->setIdleCentralCursor(Qt::CrossCursor);
+        m_selection->setIgnoreMouse(true);
+        return;
+    }
     auto toolType = activeButtonToolType();
     if (toolType == CaptureTool::TYPE_MOVESELECTION) {
         m_selection->setIdleCentralCursor(Qt::OpenHandCursor);

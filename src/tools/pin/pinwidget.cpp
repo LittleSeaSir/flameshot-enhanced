@@ -15,6 +15,7 @@
 #include <QLabel>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QMoveEvent>
 #include <QPinchGesture>
 #include <QScreen>
 #include <QShortcut>
@@ -219,6 +220,14 @@ void PinWidget::mouseReleaseEvent(QMouseEvent* e)
     QWidget::mouseReleaseEvent(e);
 }
 
+void PinWidget::moveEvent(QMoveEvent* e)
+{
+    QWidget::moveEvent(e);
+    if (!m_waylandLayerPositioned) {
+        m_pinGeometry.moveTopLeft(e->pos());
+    }
+}
+
 void PinWidget::keyPressEvent(QKeyEvent* event)
 {
     if (event->key() == Qt::Key_0) {
@@ -284,7 +293,7 @@ void PinWidget::reEdit()
 
     m_editing = true;
     const QPoint contentTopLeft =
-      m_waylandLayerPositioned
+      m_waylandPositioned
         ? m_pinGeometry.topLeft() + QPoint(MARGIN, MARGIN)
         : m_label->mapToGlobal(QPoint(0, 0));
     const QRect contentGeometry(contentTopLeft, m_label->size());

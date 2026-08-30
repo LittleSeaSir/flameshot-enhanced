@@ -49,3 +49,19 @@ target_link_libraries(waylandwindowpositioner_test PRIVATE Qt${QT_VERSION_MAJOR}
 target_compile_features(waylandwindowpositioner_test PRIVATE cxx_std_20)
 add_test(NAME waylandwindowpositioner_test COMMAND waylandwindowpositioner_test)
 set_tests_properties(waylandwindowpositioner_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(
+  selectionwidget_lock_test
+  selectionwidget_lock_test.cpp
+  ${CMAKE_SOURCE_DIR}/src/widgets/capture/selectionwidget.cpp
+  ${CMAKE_SOURCE_DIR}/src/widgets/capture/selectionwidget.h
+  ${CMAKE_SOURCE_DIR}/src/utils/globalvalues.cpp)
+target_include_directories(selectionwidget_lock_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(selectionwidget_lock_test PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+target_compile_features(selectionwidget_lock_test PRIVATE cxx_std_20)
+target_compile_definitions(
+  selectionwidget_lock_test
+  PRIVATE APP_VERSION="test" FLAMESHOT_GIT_HASH="test" USE_MONOCHROME_ICON=0)
+set_target_properties(selectionwidget_lock_test PROPERTIES AUTOMOC ON)
+add_test(NAME selectionwidget_lock_test COMMAND selectionwidget_lock_test)
+set_tests_properties(selectionwidget_lock_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

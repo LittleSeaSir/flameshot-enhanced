@@ -10,6 +10,7 @@ class QVBoxLayout;
 class QGestureEvent;
 class QPinchGesture;
 class QGraphicsDropShadowEffect;
+class QMoveEvent;
 
 class PinWidget : public QWidget
 {
@@ -24,6 +25,7 @@ protected:
     void mousePressEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
+    void moveEvent(QMoveEvent*) override;
     void keyPressEvent(QKeyEvent*) override;
     void enterEvent(QEnterEvent*) override;
     void leaveEvent(QEvent*) override;

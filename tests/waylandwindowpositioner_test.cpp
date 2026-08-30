@@ -64,18 +64,30 @@ int main(int argc, char** argv)
     window.show();
 
     const QRect moved = requested.translated(320, 180);
+    const QRect editorGeometry = moved.adjusted(7, 7, -7, -7);
+    QWidget editor;
+    editor.setWindowFlags(Qt::WindowStaysOnTopHint |
+                          Qt::FramelessWindowHint | Qt::Tool);
+    editor.setStyleSheet(QStringLiteral("background: #3060e0"));
     QTimer::singleShot(250, &app, [&]() {
         require(positionWaylandWindow(&window, moved) !=
                   WaylandWindowPositioning::Unavailable,
                 "Wayland positioning could not move the live test window");
     });
+    QTimer::singleShot(500, &app, [&]() {
+        window.hide();
+        require(positionWaylandWindow(&editor, editorGeometry) ==
+                  WaylandWindowPositioning::PlasmaShell,
+                "re-edit window did not use Plasma positioning");
+        editor.show();
+    });
     const int duration = qEnvironmentVariableIntValue(
       "FLAMESHOT_TEST_DURATION_MS");
     QTimer::singleShot(duration > 0 ? duration : 750, &app, [&]() {
-        require(window.geometry() == moved,
-                "Wayland compositor changed the requested pin geometry");
-        qInfo() << "live Wayland placement configured at" << moved
-                << "reported geometry" << window.geometry();
+        require(editor.geometry() == editorGeometry,
+                "re-edit window did not preserve the moved pin position");
+        qInfo() << "live Wayland re-edit configured at" << editorGeometry
+                << "reported geometry" << editor.geometry();
         app.quit();
     });
     return app.exec();
