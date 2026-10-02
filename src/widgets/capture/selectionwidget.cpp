@@ -108,12 +108,20 @@ SelectionWidget::SideType getProperSide(SelectionWidget::SideType side,
 void SelectionWidget::setMouseInteraction(MouseInteraction interaction)
 {
     m_mouseInteraction = interaction;
-    if (interaction == MouseInteraction::Disabled) {
+    if (interaction == MouseInteraction::Disabled ||
+        interaction == MouseInteraction::Preview) {
         m_activeSide = NO_SIDE;
         unsetCursor();
+        update();
         return;
     }
+    update();
     updateCursor();
+}
+
+SelectionWidget::MouseInteraction SelectionWidget::mouseInteraction() const
+{
+    return m_mouseInteraction;
 }
 
 /**
@@ -166,7 +174,8 @@ bool SelectionWidget::eventFilter(QObject* obj, QEvent* event)
         return false;
     }
 
-    if (m_mouseInteraction == MouseInteraction::Disabled) {
+    if (m_mouseInteraction == MouseInteraction::Disabled ||
+        m_mouseInteraction == MouseInteraction::Preview) {
         m_activeSide = NO_SIDE;
         unsetCursor();
         return false;
@@ -434,8 +443,10 @@ void SelectionWidget::paintEvent(QPaintEvent*)
     p.drawRect(rect() + QMargins(0, 0, -1, -1));
     p.setRenderHint(QPainter::Antialiasing);
     p.setBrush(m_color);
-    for (auto rectangle : handlerAreas()) {
-        p.drawEllipse(rectangle);
+    if (m_mouseInteraction != MouseInteraction::Preview) {
+        for (auto rectangle : handlerAreas()) {
+            p.drawEllipse(rectangle);
+        }
     }
 }
 

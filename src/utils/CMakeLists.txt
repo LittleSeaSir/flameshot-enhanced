@@ -6,6 +6,7 @@ target_sources(
           screengrabber.h
           systemnotification.h
           valuehandler.h
+          windowsnap.h
           strfparse.h
 )
 
@@ -27,6 +28,7 @@ target_sources(
           colorutils.cpp
           history.cpp
           waylandwindowpositioner.cpp
+          windowsnap.cpp
           strfparse.cpp
 )
 

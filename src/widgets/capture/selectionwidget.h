@@ -29,6 +29,7 @@ public:
     {
         Full,
         ResizeOnly,
+        Preview,
         Disabled,
     };
 
@@ -38,6 +39,7 @@ public:
     QVector<QRect> handlerAreas();
 
     void setMouseInteraction(MouseInteraction interaction);
+    MouseInteraction mouseInteraction() const;
     void setIdleCentralCursor(const QCursor& cursor);
 
     void setGeometryAnimated(const QRect& r);

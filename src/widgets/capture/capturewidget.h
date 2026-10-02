@@ -22,8 +22,10 @@
 
 #include <QMessageBox>
 #include <QPointer>
+#include <QRectF>
 #include <QTimer>
 #include <QUndoStack>
+#include <QVector>
 #include <QWidget>
 
 class QLabel;
@@ -49,6 +51,7 @@ class CaptureWidget : public QWidget
 
 #ifdef FLAMESHOT_BUILD_TESTS
     friend class CaptureWidgetShapeReselectionTest;
+    friend class CaptureWidgetWindowSnapTest;
 #endif
 
 public:
@@ -140,6 +143,14 @@ private:
     void initButtons();
     void initHelpMessage();
     void initQuitPrompt();
+    void startWindowSnapPreview(const QVector<QRectF>& candidates,
+                                const QRectF& screenGeometry,
+                                const QPointF& globalCursorPosition);
+    void updateWindowSnapPreview(const QPoint& localCursorPosition);
+    void applyWindowSnapTarget(const QRectF& globalTarget);
+    QRect windowSnapPreviewRect(const QRectF& globalTarget) const;
+    QRect windowSnapPhysicalRect(const QRectF& globalTarget) const;
+    void finishWindowSnapPreview();
     void updateSizeIndicator();
     void updateCursor();
     void updateSelectionState();
@@ -238,6 +249,18 @@ private:
     QRect m_pinEditExportGeometry;
     bool m_waylandPositioned{ false };
     bool m_pinEditMode{ false };
+
+    // Smart capture selection. Window candidates use compositor-global
+    // logical coordinates and remain cached while the overlay is active.
+    QVector<QRectF> m_windowSnapCandidates;
+    QRectF m_windowSnapScreenGeometry;
+    QRect m_windowSnapPhysicalSelection;
+    QPoint m_windowSnapPressPos;
+    bool m_windowSnapPreviewActive{ false };
+    bool m_windowSnapPressed{ false };
+    bool m_windowSnapManualDrag{ false };
+    bool m_windowSnapApplyingCandidate{ false };
+    bool m_windowSnapPhysicalSelectionValid{ false };
 
     // XYWH display position and timer
     bool m_xywhDisplay;

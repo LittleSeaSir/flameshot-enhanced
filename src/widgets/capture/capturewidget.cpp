@@ -22,6 +22,7 @@
 #include "utils/screengrabber.h"
 #include "utils/screenshotsaver.h"
 #include "utils/waylandwindowpositioner.h"
+#include "utils/windowsnap.h"
 #include "widgets/capture/colorpicker.h"
 #include "widgets/capture/hovereventfilter.h"
 #include "widgets/capture/modificationcommand.h"
@@ -44,6 +45,7 @@
 #include <QShortcut>
 #include <QShowEvent>
 #include <QWindow>
+#include <QtMath>
 
 #if !defined(DISABLE_UPDATE_CHECKER)
 #include "widgets/updatenotificationwidget.h"
@@ -306,6 +308,25 @@ CaptureWidget::CaptureWidget(const CaptureRequest& req,
     }
 
     initQuitPrompt();
+
+    // Cache the underlying compositor windows before this overlay is shown.
+    // Hovering previews the top-most window; empty desktop space falls back to
+    // the complete current screen. An explicit initial selection keeps its
+    // established behavior.
+    if (m_context.fullscreen && req.initialSelection().isNull()) {
+        QScreen* snapScreen = selectedScreen;
+        if (!snapScreen) {
+            snapScreen = QGuiAppCurrentScreen().currentScreen();
+        }
+        if (!snapScreen) {
+            snapScreen = QGuiApplication::primaryScreen();
+        }
+        if (snapScreen) {
+            startWindowSnapPreview(WindowSnap::queryKdeWaylandWindows(),
+                                   QRectF(snapScreen->geometry()),
+                                   QPointF(QCursor::pos()));
+        }
+    }
 
     updateCursor();
 }
@@ -1201,9 +1222,144 @@ void CaptureWidget::prepareToolDrag(const QPoint& pressPos)
     }
 }
 
+void CaptureWidget::startWindowSnapPreview(
+  const QVector<QRectF>& candidates,
+  const QRectF& screenGeometry,
+  const QPointF& globalCursorPosition)
+{
+    if (!m_selection || !screenGeometry.isValid()) {
+        return;
+    }
+
+    m_windowSnapCandidates = candidates;
+    m_windowSnapScreenGeometry = screenGeometry;
+    m_windowSnapPreviewActive = true;
+    m_windowSnapPressed = false;
+    m_windowSnapManualDrag = false;
+    m_windowSnapPhysicalSelectionValid = false;
+    m_selection->setMouseInteraction(
+      SelectionWidget::MouseInteraction::Preview);
+
+    applyWindowSnapTarget(WindowSnap::selectGeometryAt(
+      globalCursorPosition, screenGeometry, m_windowSnapCandidates));
+}
+
+void CaptureWidget::updateWindowSnapPreview(const QPoint& localCursorPosition)
+{
+    if (!m_windowSnapPreviewActive || m_windowSnapPressed) {
+        return;
+    }
+
+    const QPointF globalCursor =
+      m_windowSnapScreenGeometry.topLeft() + QPointF(localCursorPosition);
+    applyWindowSnapTarget(WindowSnap::selectGeometryAt(
+      globalCursor, m_windowSnapScreenGeometry, m_windowSnapCandidates));
+}
+
+void CaptureWidget::applyWindowSnapTarget(const QRectF& globalTarget)
+{
+    const QRect preview = windowSnapPreviewRect(globalTarget);
+    const QRect physical = windowSnapPhysicalRect(globalTarget);
+    if (!preview.isValid() || !physical.isValid()) {
+        return;
+    }
+
+    m_windowSnapApplyingCandidate = true;
+    m_selection->show();
+    if (m_selection->geometry() != preview) {
+        m_selection->setGeometry(preview);
+    }
+    m_windowSnapApplyingCandidate = false;
+
+    // The normal selection conversion truncates width*dpr. Keep the exact
+    // endpoint-mapped crop for fractional scaling (for example 175%).
+    m_windowSnapPhysicalSelection = physical;
+    m_windowSnapPhysicalSelectionValid = true;
+    m_context.selection = physical;
+    m_buttonHandler->hide();
+    update();
+}
+
+QRect CaptureWidget::windowSnapPreviewRect(const QRectF& globalTarget) const
+{
+    const QRectF clipped =
+      globalTarget.intersected(m_windowSnapScreenGeometry);
+    if (!clipped.isValid()) {
+        return {};
+    }
+
+    const qreal localLeft =
+      clipped.x() - m_windowSnapScreenGeometry.x();
+    const qreal localTop = clipped.y() - m_windowSnapScreenGeometry.y();
+    const qreal localRight = localLeft + clipped.width();
+    const qreal localBottom = localTop + clipped.height();
+    const QRect preview(qFloor(localLeft),
+                        qFloor(localTop),
+                        qCeil(localRight) - qFloor(localLeft),
+                        qCeil(localBottom) - qFloor(localTop));
+    return preview.intersected(rect());
+}
+
+QRect CaptureWidget::windowSnapPhysicalRect(const QRectF& globalTarget) const
+{
+    const QRectF clipped =
+      globalTarget.intersected(m_windowSnapScreenGeometry);
+    const QRect screenshotBounds = m_context.screenshot.rect();
+    if (!clipped.isValid() || !screenshotBounds.isValid() ||
+        m_windowSnapScreenGeometry.width() <= 0.0 ||
+        m_windowSnapScreenGeometry.height() <= 0.0) {
+        return {};
+    }
+
+    if (clipped == m_windowSnapScreenGeometry) {
+        return screenshotBounds;
+    }
+
+    // ScreenGrabber stores the portal's real fractional scale (rather than
+    // Qt's rounded Wayland buffer scale) on the pixmap.
+    const qreal scale = m_context.screenshot.devicePixelRatio();
+    const qreal localLeft =
+      clipped.x() - m_windowSnapScreenGeometry.x();
+    const qreal localTop = clipped.y() - m_windowSnapScreenGeometry.y();
+    const int left = qFloor(localLeft * scale);
+    const int top = qFloor(localTop * scale);
+    const int right = qCeil((localLeft + clipped.width()) * scale);
+    const int bottom = qCeil((localTop + clipped.height()) * scale);
+    return QRect(left, top, right - left, bottom - top)
+      .intersected(screenshotBounds);
+}
+
+void CaptureWidget::finishWindowSnapPreview()
+{
+    if (!m_windowSnapPreviewActive) {
+        return;
+    }
+
+    m_windowSnapPreviewActive = false;
+    m_windowSnapPressed = false;
+    m_selection->setMouseInteraction(SelectionWidget::MouseInteraction::Full);
+    if (m_windowSnapPhysicalSelectionValid) {
+        m_context.selection = m_windowSnapPhysicalSelection;
+    }
+    emit m_selection->geometrySettled();
+    updateSelectionState();
+    updateCursor();
+}
+
 void CaptureWidget::mousePressEvent(QMouseEvent* e)
 {
     activateWindow();
+    if (m_windowSnapPreviewActive) {
+        if (e->button() == Qt::LeftButton) {
+            updateWindowSnapPreview(e->pos());
+            m_windowSnapPressed = true;
+            m_windowSnapManualDrag = false;
+            m_windowSnapPressPos = e->pos();
+        }
+        updateCursor();
+        return;
+    }
+
     m_startMove = false;
     m_startMovePos = QPoint();
     m_startMovePosValid = false;
@@ -1320,6 +1476,38 @@ void CaptureWidget::mouseDoubleClickEvent(QMouseEvent* event)
 
 void CaptureWidget::mouseMoveEvent(QMouseEvent* e)
 {
+    m_context.mousePos = e->pos();
+    if (m_windowSnapPreviewActive) {
+        if (m_windowSnapPressed && (e->buttons() & Qt::LeftButton)) {
+            if (!m_windowSnapManualDrag &&
+                (e->pos() - m_windowSnapPressPos).manhattanLength() >
+                  MOUSE_DISTANCE_TO_START_MOVING) {
+                m_windowSnapManualDrag = true;
+                m_windowSnapPhysicalSelectionValid = false;
+            }
+            if (m_windowSnapManualDrag) {
+                const QRect manualSelection =
+                  QRect(m_windowSnapPressPos, e->pos())
+                    .normalized()
+                    .intersected(rect());
+                if (manualSelection.isValid()) {
+                    m_windowSnapPhysicalSelectionValid = false;
+                    m_windowSnapApplyingCandidate = false;
+                    m_selection->show();
+                    m_selection->setGeometry(manualSelection);
+                    // Geometry signals are suppressed while an ancestor is
+                    // not yet mapped; keep the drag result authoritative in
+                    // both the startup path and event-level tests.
+                    m_context.selection = extendedRect(manualSelection);
+                }
+            }
+        } else if (!m_windowSnapPressed) {
+            updateWindowSnapPreview(e->pos());
+        }
+        updateCursor();
+        return;
+    }
+
     if (m_magnifier) {
         if (!m_activeButton) {
             m_magnifier->show();
@@ -1329,7 +1517,6 @@ void CaptureWidget::mouseMoveEvent(QMouseEvent* e)
         }
     }
 
-    m_context.mousePos = e->pos();
     if (e->buttons() != Qt::LeftButton) {
         updateTool(activeButtonTool());
         updateCursor();
@@ -1415,6 +1602,17 @@ void CaptureWidget::mouseMoveEvent(QMouseEvent* e)
 
 void CaptureWidget::mouseReleaseEvent(QMouseEvent* e)
 {
+    if (m_windowSnapPreviewActive) {
+        if (e->button() == Qt::LeftButton && m_windowSnapPressed) {
+            if (!m_windowSnapManualDrag) {
+                // Preserve the exact snapped physical crop selected on press.
+                m_context.selection = m_windowSnapPhysicalSelection;
+            }
+            finishWindowSnapPreview();
+        }
+        return;
+    }
+
     if (e->button() == Qt::LeftButton && m_colorPicker->isVisible()) {
         // Color picker
         if (m_colorPicker->isVisible() && m_panel->activeLayerIndex() >= 0 &&
@@ -1778,6 +1976,9 @@ void CaptureWidget::initSelection()
         QRect constrainedToCaptureArea =
           m_selection->geometry().intersected(rect());
         m_context.selection = extendedRect(constrainedToCaptureArea);
+        if (!m_windowSnapApplyingCandidate) {
+            m_windowSnapPhysicalSelectionValid = false;
+        }
 
         m_buttonHandler->hide();
         updateCursor();
@@ -2180,6 +2381,8 @@ void CaptureWidget::updateCursor()
       selectionMouseSide != SelectionWidget::CENTER;
     if (m_colorPicker && m_colorPicker->isVisible()) {
         setCursor(Qt::ArrowCursor);
+    } else if (m_windowSnapPreviewActive) {
+        setCursor(Qt::CrossCursor);
     } else if (m_mouseIsClicked && m_startMove && !m_activeButton &&
                m_panel->activeLayerIndex() >= 0) {
         setCursor(Qt::ClosedHandCursor);
@@ -2544,6 +2747,9 @@ QRect CaptureWidget::extendedSelection() const
 {
     if (m_selection == nullptr) {
         return {};
+    }
+    if (m_windowSnapPhysicalSelectionValid) {
+        return m_windowSnapPhysicalSelection;
     }
     QRect r = m_selection->geometry();
     return extendedRect(r);

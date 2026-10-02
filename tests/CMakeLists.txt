@@ -3,13 +3,23 @@ find_package(Qt${QT_VERSION_MAJOR} CONFIG REQUIRED Gui Widgets)
 # Exercise CaptureWidget's real mouse-event path without rebuilding its large
 # dependency graph as a second executable. This source and command-line entry
 # point exist only when FLAMESHOT_BUILD_TESTS is enabled.
-target_sources(flameshot PRIVATE capturewidget_shape_reselection_test.cpp)
+target_sources(
+  flameshot
+  PRIVATE capturewidget_shape_reselection_test.cpp
+          capturewidget_windowsnap_test.cpp)
 target_compile_definitions(flameshot PRIVATE FLAMESHOT_BUILD_TESTS=1)
 add_test(
   NAME capturewidget_shape_reselection_test
   COMMAND $<TARGET_FILE:flameshot> --self-test-capture-shape-reselection)
 set_tests_properties(
   capturewidget_shape_reselection_test
+  PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_test(
+  NAME capturewidget_windowsnap_test
+  COMMAND $<TARGET_FILE:flameshot> --self-test-capture-window-snap)
+set_tests_properties(
+  capturewidget_windowsnap_test
   PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(

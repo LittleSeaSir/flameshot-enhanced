@@ -215,6 +215,23 @@ int main(int argc, char* argv[])
             "resize-only hover did not reach the annotation canvas");
 
     selection.setGeometry(originalGeometry);
+    selection.setMouseInteraction(SelectionWidget::MouseInteraction::Preview);
+    editor.resetCounts();
+    settledCount = 0;
+    sendDrag(editor,
+             originalGeometry.bottomRight(),
+             originalGeometry.bottomRight() + QPoint(20, 20));
+    require(selection.mouseInteraction() ==
+              SelectionWidget::MouseInteraction::Preview,
+            "preview selection did not retain its interaction state");
+    require(selection.geometry() == originalGeometry,
+            "preview selection resized with the mouse");
+    require(editor.presses == 1 && editor.moves == 1 && editor.releases == 1,
+            "preview selection unexpectedly consumed parent mouse events");
+    require(settledCount == 0,
+            "preview selection unexpectedly emitted geometrySettled");
+
+    selection.setGeometry(originalGeometry);
     selection.setMouseInteraction(
       SelectionWidget::MouseInteraction::Disabled);
     editor.resetCounts();
