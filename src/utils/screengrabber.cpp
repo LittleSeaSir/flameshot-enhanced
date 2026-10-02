@@ -4,6 +4,7 @@
 #include "utils/abstractlogger.h"
 #include "utils/confighandler.h"
 #include "utils/monitorpreview.h"
+#include "utils/screenshotscale.h"
 #include "utils/systemnotification.h"
 
 #include <QApplication>
@@ -92,13 +93,9 @@ void ScreenGrabber::freeDesktopPortal(bool& ok, QPixmap& res)
             QUrl uri = map.value("uri").toString();
             QString uriString = uri.toLocalFile();
             res = QPixmap(uriString);
-            // Wayland portal returns physical-resolution pixmap without DPR.
-            // Set it so extendedRect() scales selection correctly, and pin
-            // position/size match the actual screen pixels.
-            QScreen* screen = QGuiApplication::primaryScreen();
-            if (screen) {
-                res.setDevicePixelRatio(screen->devicePixelRatio());
-            }
+            // Keep the portal's native pixels untouched. On fractional-scale
+            // Wayland, QScreen may report an integer buffer DPR (for example
+            // 2.0 at 175%), which is not the portal image's real scale.
             QFile imgFile(uriString);
             imgFile.remove();
         }
@@ -285,19 +282,6 @@ QPixmap ScreenGrabber::grabEntireDesktop(bool& ok, int preSelectedMonitor)
         if (!ok) {
             AbstractLogger::error() << tr("Unable to capture screen");
             return QPixmap();
-        }
-    }
-    // Safety net: ensure screenshot DPR matches the screen's DPR.
-    // This covers edge cases where QGuiApplication::primaryScreen() was not
-    // available inside freeDesktopPortal (e.g. early startup via global shortcut).
-    if (!screenshot.isNull()) {
-        const QList<QScreen*> screens = QGuiApplication::screens();
-        if (!screens.isEmpty()) {
-            qreal screenDpr = screens.first()->devicePixelRatio();
-            qreal pixmapDpr = screenshot.devicePixelRatio();
-            if (qAbs(screenDpr - pixmapDpr) > 0.01) {
-                screenshot.setDevicePixelRatio(screenDpr);
-            }
         }
     }
 #elif defined(Q_OS_WIN)
@@ -631,23 +615,14 @@ QPixmap ScreenGrabber::cropToMonitor(const QPixmap& fullScreenshot,
     QPixmap cropped = fullScreenshot.copy(cropRect);
 
 #if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
-    // Linux: May need rescaling if scale factors don't match
-    if (qAbs(screenshotScaleX - targetDpr) > 0.01) {
-        int targetPhysicalWidth = qRound(targetGeometry.width() * targetDpr);
-        int targetPhysicalHeight = qRound(targetGeometry.height() * targetDpr);
-        cropped = cropped.scaled(targetPhysicalWidth,
-                                 targetPhysicalHeight,
-                                 Qt::IgnoreAspectRatio,
-                                 Qt::SmoothTransformation);
-#ifdef FLAMESHOT_DEBUG_CAPTURE
-        qDebug() << tr("Scaling screenshot to: %1 %2")
-                      .arg(targetPhysicalWidth)
-                      .arg(targetPhysicalHeight);
-#endif
-    }
-#endif
-    // Cropped region should be at target monitor's native DPR
+    // Preserve the exact pixels delivered by the portal. Derive the image DPR
+    // from physical and logical sizes instead of QScreen::devicePixelRatio(),
+    // which is rounded up to the Wayland buffer scale on fractional scaling.
+    cropped.setDevicePixelRatio(
+      screenshotDevicePixelRatio(cropped.size(), targetGeometry.size()));
+#else
     cropped.setDevicePixelRatio(targetDpr);
+#endif
 
     return cropped;
 }

@@ -68,3 +68,12 @@ target_compile_definitions(
 set_target_properties(selectionwidget_lock_test PROPERTIES AUTOMOC ON)
 add_test(NAME selectionwidget_lock_test COMMAND selectionwidget_lock_test)
 set_tests_properties(selectionwidget_lock_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(
+  screenshotscale_test
+  screenshotscale_test.cpp
+  ${CMAKE_SOURCE_DIR}/src/utils/screenshotscale.cpp)
+target_include_directories(screenshotscale_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(screenshotscale_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+target_compile_features(screenshotscale_test PRIVATE cxx_std_20)
+add_test(NAME screenshotscale_test COMMAND screenshotscale_test)

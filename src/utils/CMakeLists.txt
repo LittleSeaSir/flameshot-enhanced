@@ -18,6 +18,7 @@ target_sources(
           confighandler.cpp
           systemnotification.cpp
           valuehandler.cpp
+          screenshotscale.cpp
           screenshotsaver.cpp
           globalvalues.cpp
           desktopfileparse.cpp
