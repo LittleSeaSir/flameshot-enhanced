@@ -25,12 +25,19 @@ public:
         CENTER = 0b10000,
     };
 
+    enum class MouseInteraction
+    {
+        Full,
+        ResizeOnly,
+        Disabled,
+    };
+
     explicit SelectionWidget(QColor c, QWidget* parent = nullptr);
 
     SideType getMouseSide(const QPoint& mousePos) const;
     QVector<QRect> handlerAreas();
 
-    void setIgnoreMouse(bool ignore);
+    void setMouseInteraction(MouseInteraction interaction);
     void setIdleCentralCursor(const QCursor& cursor);
 
     void setGeometryAnimated(const QRect& r);
@@ -80,6 +87,7 @@ public slots:
 private:
     void updateAreas();
     void updateCursor();
+    void updateCursor(const QPoint& parentMousePos);
     void setGeometryByKeyboard(const QRect& r);
 
     QPropertyAnimation* m_animation;
@@ -91,7 +99,7 @@ private:
     QPoint m_dragStartPos;
     SideType m_activeSide;
     QCursor m_idleCentralCursor;
-    bool m_ignoreMouse;
+    MouseInteraction m_mouseInteraction;
     bool m_mouseStartMove;
 
     // naming convention for handles

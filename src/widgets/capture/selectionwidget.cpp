@@ -19,7 +19,7 @@ SelectionWidget::SelectionWidget(QColor c, QWidget* parent)
   : QWidget(parent)
   , m_color(std::move(c))
   , m_activeSide(NO_SIDE)
-  , m_ignoreMouse(false)
+  , m_mouseInteraction(MouseInteraction::Full)
 {
     // prevents this widget from consuming CaptureToolButton mouse events
     setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -105,9 +105,14 @@ SelectionWidget::SideType getProperSide(SelectionWidget::SideType side,
     return (SideType)intSide;
 }
 
-void SelectionWidget::setIgnoreMouse(bool ignore)
+void SelectionWidget::setMouseInteraction(MouseInteraction interaction)
 {
-    m_ignoreMouse = ignore;
+    m_mouseInteraction = interaction;
+    if (interaction == MouseInteraction::Disabled) {
+        m_activeSide = NO_SIDE;
+        unsetCursor();
+        return;
+    }
     updateCursor();
 }
 
@@ -155,17 +160,59 @@ QRect SelectionWidget::rect() const
 
 bool SelectionWidget::eventFilter(QObject* obj, QEvent* event)
 {
-    if (m_ignoreMouse && dynamic_cast<QMouseEvent*>(event)) {
+    Q_UNUSED(obj)
+    auto* mouseEvent = dynamic_cast<QMouseEvent*>(event);
+    if (!mouseEvent) {
+        return false;
+    }
+
+    if (m_mouseInteraction == MouseInteraction::Disabled) {
         m_activeSide = NO_SIDE;
         unsetCursor();
-    } else if (event->type() == QEvent::MouseButtonRelease) {
-        parentMouseReleaseEvent(static_cast<QMouseEvent*>(event));
-    } else if (event->type() == QEvent::MouseButtonPress) {
-        parentMousePressEvent(static_cast<QMouseEvent*>(event));
-    } else if (event->type() == QEvent::MouseMove) {
-        parentMouseMoveEvent(static_cast<QMouseEvent*>(event));
+        return false;
     }
-    return false;
+
+    const QEvent::Type eventType = event->type();
+    const bool isPress = eventType == QEvent::MouseButtonPress;
+    const bool isRelease = eventType == QEvent::MouseButtonRelease;
+    const bool isMove = eventType == QEvent::MouseMove;
+    if (!isPress && !isRelease && !isMove) {
+        return false;
+    }
+
+    bool consumeResizeGesture = false;
+    if (m_mouseInteraction == MouseInteraction::ResizeOnly) {
+        const SideType hitSide = getMouseSide(mouseEvent->position().toPoint());
+        const bool hitResizeHandle =
+          hitSide != NO_SIDE && hitSide != CENTER;
+        const bool resizing =
+          m_activeSide != NO_SIDE && m_activeSide != CENTER;
+        const bool leftPress =
+          isPress && mouseEvent->button() == Qt::LeftButton;
+        const bool leftRelease =
+          isRelease && mouseEvent->button() == Qt::LeftButton;
+
+        if (!resizing && !(hitResizeHandle && (isMove || leftPress))) {
+            if (isMove) {
+                updateCursor(mouseEvent->position().toPoint());
+            }
+            return false;
+        }
+
+        // Hover updates the resize cursor but is still passed to the parent.
+        // The actual drag is consumed so an active annotation tool cannot draw
+        // a stroke on top of the selection handle.
+        consumeResizeGesture = resizing || leftPress || leftRelease;
+    }
+
+    if (isRelease) {
+        parentMouseReleaseEvent(mouseEvent);
+    } else if (isPress) {
+        parentMousePressEvent(mouseEvent);
+    } else if (isMove) {
+        parentMouseMoveEvent(mouseEvent);
+    }
+    return consumeResizeGesture;
 }
 
 void SelectionWidget::parentMousePressEvent(QMouseEvent* e)
@@ -192,7 +239,7 @@ void SelectionWidget::parentMouseReleaseEvent(QMouseEvent* e)
 
 void SelectionWidget::parentMouseMoveEvent(QMouseEvent* e)
 {
-    updateCursor();
+    updateCursor(e->position().toPoint());
 
     if (e->buttons() != Qt::LeftButton) {
         return;
@@ -508,11 +555,15 @@ void SelectionWidget::updateAreas()
 
 void SelectionWidget::updateCursor()
 {
+    updateCursor(parentWidget()->mapFromGlobal(QCursor::pos()));
+}
+
+void SelectionWidget::updateCursor(const QPoint& parentMousePos)
+{
     SideType mouseSide = m_activeSide;
     if (!m_activeSide) {
-        mouseSide = getMouseSide(parentWidget()->mapFromGlobal(QCursor::pos()));
+        mouseSide = getMouseSide(parentMousePos);
     }
-
     switch (mouseSide) {
         case TOPLEFT_SIDE:
             setCursor(Qt::SizeFDiagCursor);

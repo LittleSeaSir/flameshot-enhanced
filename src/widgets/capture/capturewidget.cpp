@@ -435,7 +435,8 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
     m_selection->setGeometry(editorLayout.contentGeometry);
     m_context.selection = m_pinEditPhysicalSelection;
     emit m_selection->geometrySettled();
-    m_selection->setIgnoreMouse(true);
+    m_selection->setMouseInteraction(
+      SelectionWidget::MouseInteraction::Disabled);
     initShortcuts();
     if (m_config.showMagnifier()) {
         m_magnifier = new MagnifierWidget(
@@ -1179,9 +1180,23 @@ void CaptureWidget::mousePressEvent(QMouseEvent* e)
         updateCursor();
         return;
     }
+    const SelectionWidget::SideType selectionMouseSide =
+      m_selection->getMouseSide(e->pos());
     // reset object selection if capture area selection is active
-    if (m_selection->getMouseSide(e->pos()) != SelectionWidget::CENTER) {
+    if (selectionMouseSide != SelectionWidget::CENTER) {
         m_panel->setActiveLayer(-1);
+    }
+    const bool resizeHandlePressed =
+      selectionMouseSide != SelectionWidget::NO_SIDE &&
+      selectionMouseSide != SelectionWidget::CENTER;
+    if (!m_pinEditMode && e->button() == Qt::LeftButton &&
+        resizeHandlePressed) {
+        // SelectionWidget's parent event filter owns this gesture. Do not let
+        // an active annotation tool start drawing on the resize handle.
+        m_mouseIsClicked = false;
+        updateSelectionState();
+        updateCursor();
+        return;
     }
     if (e->button() == Qt::RightButton) {
         if (m_activeTool && m_activeTool->editMode()) {
@@ -2103,15 +2118,21 @@ void CaptureWidget::updateSizeIndicator()
 
 void CaptureWidget::updateCursor()
 {
+    const SelectionWidget::SideType selectionMouseSide =
+      m_selection->getMouseSide(mapFromGlobal(QCursor::pos()));
+    const bool overResizeHandle =
+      selectionMouseSide != SelectionWidget::NO_SIDE &&
+      selectionMouseSide != SelectionWidget::CENTER;
     if (m_colorPicker && m_colorPicker->isVisible()) {
         setCursor(Qt::ArrowCursor);
+    } else if (!m_pinEditMode && overResizeHandle) {
+        setCursor(m_selection->cursor());
     } else if (m_pinEditMode && !m_activeButton) {
         setCursor(Qt::CrossCursor);
     } else if (m_activeButton != nullptr &&
                activeButtonToolType() != CaptureTool::TYPE_MOVESELECTION) {
         setCursor(Qt::CrossCursor);
-    } else if (m_selection->getMouseSide(mapFromGlobal(QCursor::pos())) !=
-               SelectionWidget::NO_SIDE) {
+    } else if (selectionMouseSide != SelectionWidget::NO_SIDE) {
         setCursor(m_selection->cursor());
     } else if (activeButtonToolType() == CaptureTool::TYPE_MOVESELECTION) {
         setCursor(Qt::OpenHandCursor);
@@ -2124,19 +2145,25 @@ void CaptureWidget::updateSelectionState()
 {
     if (m_pinEditMode) {
         m_selection->setIdleCentralCursor(Qt::CrossCursor);
-        m_selection->setIgnoreMouse(true);
+        m_selection->setMouseInteraction(
+          SelectionWidget::MouseInteraction::Disabled);
         return;
     }
     auto toolType = activeButtonToolType();
     if (toolType == CaptureTool::TYPE_MOVESELECTION) {
         m_selection->setIdleCentralCursor(Qt::OpenHandCursor);
-        m_selection->setIgnoreMouse(false);
+        m_selection->setMouseInteraction(
+          SelectionWidget::MouseInteraction::Full);
     } else {
         m_selection->setIdleCentralCursor(Qt::ArrowCursor);
         if (toolType == CaptureTool::NONE) {
-            m_selection->setIgnoreMouse(m_panel->activeLayerIndex() != -1);
+            m_selection->setMouseInteraction(
+              m_panel->activeLayerIndex() == -1
+                ? SelectionWidget::MouseInteraction::Full
+                : SelectionWidget::MouseInteraction::ResizeOnly);
         } else {
-            m_selection->setIgnoreMouse(true);
+            m_selection->setMouseInteraction(
+              SelectionWidget::MouseInteraction::ResizeOnly);
         }
     }
 }
