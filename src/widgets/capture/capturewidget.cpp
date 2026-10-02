@@ -371,13 +371,26 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
         selectedScreen = QGuiApplication::primaryScreen();
     }
     const QRect screenGeometry = selectedScreen->geometry();
-    const qreal canvasDpr = selectedScreen->devicePixelRatio();
+    const qreal preloadedDpr = preloaded.devicePixelRatio();
+    const qreal canvasDpr = preloadedDpr > 0.0
+                              ? preloadedDpr
+                              : selectedScreen->devicePixelRatio();
     const PinEditorLayout editorLayout = createPinEditorLayout(
       preloaded,
       pinGeometry,
       screenGeometry,
       canvasDpr,
       PIN_WINDOW_MARGIN);
+    m_pinEditPhysicalSelection = editorLayout.initialSelection;
+    const QRect logicalContentGeometry(
+      editorLayout.windowGeometry.topLeft() +
+        editorLayout.contentGeometry.topLeft(),
+      editorLayout.contentGeometry.size());
+    m_pinEditExportGeometry = pinCaptureContentGeometry(
+      logicalContentGeometry,
+      screenGeometry.topLeft(),
+      preloaded.size(),
+      canvasDpr);
     m_context.screenshot = editorLayout.canvas;
     m_context.origScreenshot = editorLayout.canvas;
     m_context.fullscreen = false;
@@ -415,6 +428,13 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
 
     initButtons();
     initSelection();
+    // Keep the visible selection aligned to the logical pin window, but retain
+    // its exact physical-pixel rectangle for export. Integer widget geometry
+    // cannot represent every fractional-DPR image size without a one-pixel
+    // round-trip error.
+    m_selection->setGeometry(editorLayout.contentGeometry);
+    m_context.selection = m_pinEditPhysicalSelection;
+    emit m_selection->geometrySettled();
     m_selection->setIgnoreMouse(true);
     initShortcuts();
     if (m_config.showMagnifier()) {
@@ -488,6 +508,15 @@ CaptureWidget::~CaptureWidget()
     }
 #endif
     if (m_captureDone) {
+        if (m_pinEditMode) {
+            QRect geometry = m_pinEditExportGeometry;
+            const QPixmap editedPin =
+              m_context.screenshot.copy(m_pinEditPhysicalSelection);
+            Flameshot::instance()->exportCapture(
+              editedPin, geometry, m_context.request);
+            emit captureFinished(m_captureDone);
+            return;
+        }
         auto lastRegion = m_selection->geometry();
         const qreal scale = m_context.screenshot.devicePixelRatio();
         lastRegion.setTop(lastRegion.top() * scale);
@@ -2195,6 +2224,7 @@ void CaptureWidget::drawToolsData(bool drawSelection)
         // Multi-layer rendering: process tools in order so erasers
         // only affect tools that were drawn BEFORE them.
         QPixmap annotLayer(pixmapItem.size());
+        annotLayer.setDevicePixelRatio(pixmapItem.devicePixelRatio());
         annotLayer.fill(Qt::transparent);
 
         for (const auto& toolItem :

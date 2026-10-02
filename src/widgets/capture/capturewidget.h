@@ -227,6 +227,8 @@ private:
     QPoint m_lastWholeStrokeErasePos;
     bool m_wholeStrokeEraseChanged{ false };
     QRect m_deferredWindowGeometry;
+    QRect m_pinEditPhysicalSelection;
+    QRect m_pinEditExportGeometry;
     bool m_waylandPositioned{ false };
     bool m_pinEditMode{ false };
 

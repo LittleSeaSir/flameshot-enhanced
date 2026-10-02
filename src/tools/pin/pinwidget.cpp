@@ -74,21 +74,18 @@ PinWidget::PinWidget(const QPixmap& pixmap,
     // The `geometry` passed in is in device pixels (×DPR). Convert to logical
     // and store — it will be applied in showEvent() when the Wayland platform
     // window handle exists and can accept positioning.
-    qreal dpr = 1.0;
+    qreal dpr = m_pixmap.devicePixelRatio();
     QScreen* currentScreen = QGuiAppCurrentScreen().currentScreen();
     QPoint screenTopLeft(0, 0);
     if (currentScreen != nullptr) {
-        dpr = currentScreen->devicePixelRatio();
         screenTopLeft = currentScreen->geometry().topLeft();
+        if (dpr <= 0.0) {
+            dpr = currentScreen->devicePixelRatio();
+        }
     }
 
-    QRect logicalGeom;
-    logicalGeom.setX(
-      static_cast<int>((geometry.x() - screenTopLeft.x()) / dpr + screenTopLeft.x()));
-    logicalGeom.setY(
-      static_cast<int>((geometry.y() - screenTopLeft.y()) / dpr + screenTopLeft.y()));
-    logicalGeom.setWidth(static_cast<int>(geometry.width() / dpr));
-    logicalGeom.setHeight(static_cast<int>(geometry.height() / dpr));
+    const QRect logicalGeom =
+      pinLogicalContentGeometry(geometry, screenTopLeft, dpr);
 
     m_pinGeometry = logicalGeom.adjusted(-MARGIN, -MARGIN, MARGIN, MARGIN);
 

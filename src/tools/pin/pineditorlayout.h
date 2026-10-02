@@ -16,6 +16,15 @@ struct PinEditorLayout
     QRect initialSelection;
 };
 
+QRect pinLogicalContentGeometry(const QRect& captureGeometry,
+                                const QPoint& screenTopLeft,
+                                qreal devicePixelRatio);
+
+QRect pinCaptureContentGeometry(const QRect& logicalGeometry,
+                                const QPoint& screenTopLeft,
+                                const QSize& physicalSize,
+                                qreal devicePixelRatio);
+
 PinEditorLayout createPinEditorLayout(const QPixmap& content,
                                       const QRect& globalContentGeometry,
                                       const QRect& screenGeometry,
