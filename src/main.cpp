@@ -38,6 +38,10 @@
 // Required for saving button list QList<CaptureTool::Type>
 Q_DECLARE_METATYPE(QList<int>)
 
+#ifdef FLAMESHOT_BUILD_TESTS
+int runCaptureWidgetShapeReselectionTest(int argc, char* argv[]);
+#endif
+
 #if defined(USE_KDSINGLEAPPLICATION) && defined(Q_OS_UNIX)
 static int setup_unix_signal_handlers()
 {
@@ -201,6 +205,12 @@ void reinitializeAsQApplication(int& argc,
 
 int main(int argc, char* argv[])
 {
+#ifdef FLAMESHOT_BUILD_TESTS
+    if (argc == 2 &&
+        qstrcmp(argv[1], "--self-test-capture-shape-reselection") == 0) {
+        return runCaptureWidgetShapeReselectionTest(argc, argv);
+    }
+#endif
 
     QTranslator translator, qtTranslator;
 

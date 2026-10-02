@@ -1145,19 +1145,38 @@ void CaptureWidget::pushObjectsStateToUndoStack()
     m_captureToolObjectsBackup.clear();
 }
 
-int CaptureWidget::selectToolItemAtPos(const QPoint& pos)
+int CaptureWidget::selectToolItemAtPos(const QPoint& pos,
+                                       bool allowActiveTwoPointTool)
 {
     // Try to select existing tool, "-1" - no active tool
     int activeLayerIndex = -1;
     auto selectionMouseSide = m_selection->getMouseSide(pos);
-    if (m_activeButton.isNull() &&
+    const bool selectWhileDrawing =
+      allowActiveTwoPointTool &&
+      qobject_cast<AbstractTwoPointTool*>(activeButtonTool());
+    if ((m_activeButton.isNull() || selectWhileDrawing) &&
         m_captureToolObjects.captureToolObjects().size() > 0 &&
         (selectionMouseSide == SelectionWidget::NO_SIDE ||
          selectionMouseSide == SelectionWidget::CENTER)) {
         auto toolItem = activeToolObject();
-        if (!toolItem ||
-            (toolItem && !toolItem->boundingRect().contains(pos))) {
+        if (!selectWhileDrawing && toolItem &&
+            toolItem->boundingRect().contains(pos)) {
+            // Keep the already selected object easy to drag, including from
+            // transparent space inside a hollow shape's bounding rectangle.
+            return m_panel->activeLayerIndex();
+        }
+
+        if (!toolItem || selectWhileDrawing ||
+            !toolItem->boundingRect().contains(pos)) {
             activeLayerIndex = m_captureToolObjects.find(pos, size());
+            if (selectWhileDrawing && activeLayerIndex >= 0 &&
+                !qobject_cast<AbstractTwoPointTool*>(
+                  m_captureToolObjects.at(activeLayerIndex))) {
+                // A fixed-shape tool should only interrupt continuous drawing
+                // when another fixed shape was actually hit. This keeps it
+                // possible to start a new shape on top of a freehand stroke.
+                return -1;
+            }
             int oldToolSize = m_context.toolSize;
             m_panel->setActiveLayer(activeLayerIndex);
             drawObjectSelection();
@@ -1169,13 +1188,28 @@ int CaptureWidget::selectToolItemAtPos(const QPoint& pos)
     return activeLayerIndex;
 }
 
+void CaptureWidget::prepareToolDrag(const QPoint& pressPos)
+{
+    m_startMovePos = pressPos;
+    m_startMovePosValid = true;
+
+    auto toolItem = activeToolObject();
+    const QPoint* toolPos = toolItem ? toolItem->pos() : nullptr;
+    if (toolPos) {
+        m_activeToolOffsetToMouseOnStart = pressPos - *toolPos;
+        m_activeToolOffsetToMouseOnStartValid = true;
+    }
+}
+
 void CaptureWidget::mousePressEvent(QMouseEvent* e)
 {
     activateWindow();
     m_startMove = false;
     m_startMovePos = QPoint();
+    m_startMovePosValid = false;
     m_mousePressedPos = e->pos();
     m_activeToolOffsetToMouseOnStart = QPoint();
+    m_activeToolOffsetToMouseOnStartValid = false;
     if (m_colorPicker->isVisible()) {
         updateCursor();
         return;
@@ -1207,6 +1241,20 @@ void CaptureWidget::mousePressEvent(QMouseEvent* e)
     } else if (e->button() == Qt::LeftButton) {
         m_mouseIsClicked = true;
 
+        // Fixed-shape tools stay active for continuous drawing. Before
+        // starting another shape, give an existing fixed shape under the
+        // cursor a chance to be selected and moved with this same gesture.
+        if (qobject_cast<AbstractTwoPointTool*>(activeButtonTool())) {
+            const int activeLayerIndex =
+              selectToolItemAtPos(m_mousePressedPos, true);
+            if (activeLayerIndex >= 0) {
+                prepareToolDrag(m_mousePressedPos);
+                updateSelectionState();
+                updateCursor();
+                return;
+            }
+        }
+
         // Click using a tool excluding tool MOVE
         if (startDrawObjectTool(m_mousePressedPos)) {
             auto* eraser = qobject_cast<EraserTool*>(m_activeTool.data());
@@ -1230,7 +1278,9 @@ void CaptureWidget::mousePressEvent(QMouseEvent* e)
         updateLayersPanel();
     }
 
-    selectToolItemAtPos(m_mousePressedPos);
+    if (selectToolItemAtPos(m_mousePressedPos) >= 0) {
+        prepareToolDrag(m_mousePressedPos);
+    }
     updateSelectionState();
     updateCursor();
 }
@@ -1291,8 +1341,9 @@ void CaptureWidget::mouseMoveEvent(QMouseEvent* e)
         // Move existing object
         if (!m_startMove) {
             // Check for the minimal offset to start moving an object
-            if (m_startMovePos.isNull()) {
+            if (!m_startMovePosValid) {
                 m_startMovePos = e->pos();
+                m_startMovePosValid = true;
             }
             if ((e->pos() - m_startMovePos).manhattanLength() >
                 MOUSE_DISTANCE_TO_START_MOVING) {
@@ -1302,10 +1353,14 @@ void CaptureWidget::mouseMoveEvent(QMouseEvent* e)
         if (m_startMove) {
             QPointer<CaptureTool> activeTool =
               m_captureToolObjects.at(m_panel->activeLayerIndex());
-            if (m_activeToolOffsetToMouseOnStart.isNull()) {
-                setCursor(Qt::ClosedHandCursor);
+            if (!activeTool || !activeTool->pos()) {
+                return;
+            }
+            setCursor(Qt::ClosedHandCursor);
+            if (!m_activeToolOffsetToMouseOnStartValid) {
                 m_activeToolOffsetToMouseOnStart =
                   e->pos() - *activeTool->pos();
+                m_activeToolOffsetToMouseOnStartValid = true;
             }
             if (!m_activeToolIsMoved) {
                 // save state before movement for undo stack
@@ -2125,6 +2180,9 @@ void CaptureWidget::updateCursor()
       selectionMouseSide != SelectionWidget::CENTER;
     if (m_colorPicker && m_colorPicker->isVisible()) {
         setCursor(Qt::ArrowCursor);
+    } else if (m_mouseIsClicked && m_startMove && !m_activeButton &&
+               m_panel->activeLayerIndex() >= 0) {
+        setCursor(Qt::ClosedHandCursor);
     } else if (!m_pinEditMode && overResizeHandle) {
         setCursor(m_selection->cursor());
     } else if (m_pinEditMode && !m_activeButton) {

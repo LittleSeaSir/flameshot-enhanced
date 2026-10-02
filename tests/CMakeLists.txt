@@ -1,5 +1,17 @@
 find_package(Qt${QT_VERSION_MAJOR} CONFIG REQUIRED Gui Widgets)
 
+# Exercise CaptureWidget's real mouse-event path without rebuilding its large
+# dependency graph as a second executable. This source and command-line entry
+# point exist only when FLAMESHOT_BUILD_TESTS is enabled.
+target_sources(flameshot PRIVATE capturewidget_shape_reselection_test.cpp)
+target_compile_definitions(flameshot PRIVATE FLAMESHOT_BUILD_TESTS=1)
+add_test(
+  NAME capturewidget_shape_reselection_test
+  COMMAND $<TARGET_FILE:flameshot> --self-test-capture-shape-reselection)
+set_tests_properties(
+  capturewidget_shape_reselection_test
+  PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(
   strokesmoother_test
   strokesmoother_test.cpp
@@ -15,10 +27,14 @@ add_executable(
   annotation_tools_test
   annotation_tools_test.cpp
   ${CMAKE_SOURCE_DIR}/src/tools/capturetool.h
+  ${CMAKE_SOURCE_DIR}/src/tools/abstracttwopointtool.cpp
   ${CMAKE_SOURCE_DIR}/src/tools/abstractpathtool.cpp
+  ${CMAKE_SOURCE_DIR}/src/tools/circle/circletool.cpp
   ${CMAKE_SOURCE_DIR}/src/tools/eraser/erasertool.cpp
+  ${CMAKE_SOURCE_DIR}/src/tools/line/linetool.cpp
   ${CMAKE_SOURCE_DIR}/src/tools/pencil/penciltool.cpp
   ${CMAKE_SOURCE_DIR}/src/tools/pencil/strokesmoother.cpp
+  ${CMAKE_SOURCE_DIR}/src/tools/rectangle/rectangletool.cpp
   ${CMAKE_SOURCE_DIR}/src/utils/colorutils.cpp
   ${CMAKE_SOURCE_DIR}/src/utils/pathinfo.cpp
   ${CMAKE_SOURCE_DIR}/src/widgets/capture/capturetoolobjects.cpp)

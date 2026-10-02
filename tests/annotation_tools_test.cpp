@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Flameshot Contributors
 
+#include "tools/abstracttwopointtool.h"
+#include "tools/circle/circletool.h"
 #include "tools/eraser/erasertool.h"
+#include "tools/line/linetool.h"
 #include "tools/pencil/penciltool.h"
+#include "tools/rectangle/rectangletool.h"
 #include "widgets/capture/capturetoolobjects.h"
 
 #include <QApplication>
@@ -61,6 +65,74 @@ std::unique_ptr<TestPencilTool> makePencil(const QPoint& from,
     return pencil;
 }
 
+template<typename Tool>
+void verifyFixedShape(const char* shape,
+                      const QPoint& from,
+                      const QPoint& to,
+                      const QPoint& hitPoint,
+                      const QPoint& missPoint)
+{
+    CaptureToolObjects objects;
+    Tool source(&objects);
+    CaptureContext context;
+    context.mousePos = from;
+    context.color = Qt::magenta;
+    context.toolSize = 4;
+    context.penStyle = 0;
+    source.drawStart(context);
+    source.drawMove(to);
+    source.drawEnd(to);
+
+    require(source.isValid(), "fixed-shape fixture is invalid");
+    objects.append(QPointer<CaptureTool>(&source));
+    require(objects.size() == 1, "fixed shape was not stored");
+    require(objects.find(hitPoint, QSize(256, 256)) == 0,
+            "fixed shape cannot be selected on its painted pixels");
+    require(objects.find(missPoint, QSize(256, 256)) == -1,
+            "fixed shape was selected away from its painted pixels");
+
+    CaptureToolObjects beforeMove;
+    beforeMove = objects;
+    auto* stored =
+      qobject_cast<AbstractTwoPointTool*>(objects.at(0).data());
+    require(stored != nullptr, "stored fixed shape lost its geometry type");
+    const auto originalPoints = stored->points();
+    const QRect originalBounds = stored->boundingRect();
+    const QPoint delta(100, 80);
+    stored->move(*stored->pos() + delta);
+
+    require(stored->points().first == originalPoints.first + delta &&
+              stored->points().second == originalPoints.second + delta,
+            "fixed shape endpoints did not move by the same delta");
+    require(stored->boundingRect() == originalBounds.translated(delta),
+            "fixed shape bounds did not move by the same delta");
+    require(objects.find(hitPoint, QSize(256, 256)) == -1,
+            "fixed shape remained selectable at its old position");
+    require(objects.find(hitPoint + delta, QSize(256, 256)) == 0,
+            "fixed shape is not selectable at its new position");
+
+    CaptureToolObjects afterMove;
+    afterMove = objects;
+    objects = beforeMove;
+    auto* restored =
+      qobject_cast<AbstractTwoPointTool*>(objects.at(0).data());
+    require(restored && restored->points() == originalPoints,
+            "undo snapshot did not restore fixed-shape geometry");
+    require(objects.find(hitPoint, QSize(256, 256)) == 0,
+            "undo snapshot did not restore fixed-shape hit testing");
+
+    objects = afterMove;
+    auto* redone = qobject_cast<AbstractTwoPointTool*>(objects.at(0).data());
+    require(redone &&
+              redone->points().first == originalPoints.first + delta &&
+              redone->points().second == originalPoints.second + delta,
+            "redo snapshot did not restore moved fixed-shape geometry");
+    require(objects.find(hitPoint + delta, QSize(256, 256)) == 0,
+            "redo snapshot did not restore moved fixed-shape hit testing");
+
+    qInfo() << shape << "selection and movement passed";
+}
+
 }
 
 int main(int argc, char** argv)
@@ -115,6 +187,22 @@ int main(int argc, char** argv)
             "hit testing did not select the top annotation");
     require(objects.find(QPoint(31, 31), QSize(32, 32), 5) == -1,
             "outlying hit test returned a false annotation");
+
+    verifyFixedShape<RectangleTool>("rectangle",
+                                    QPoint(20, 20),
+                                    QPoint(80, 80),
+                                    QPoint(50, 20),
+                                    QPoint(10, 50));
+    verifyFixedShape<CircleTool>("circle",
+                                 QPoint(20, 20),
+                                 QPoint(80, 80),
+                                 QPoint(50, 20),
+                                 QPoint(50, 50));
+    verifyFixedShape<LineTool>("line",
+                               QPoint(20, 20),
+                               QPoint(80, 80),
+                               QPoint(50, 50),
+                               QPoint(20, 80));
 
     qInfo() << "annotation tool tests passed";
     return EXIT_SUCCESS;

@@ -47,6 +47,10 @@ class CaptureWidget : public QWidget
 {
     Q_OBJECT
 
+#ifdef FLAMESHOT_BUILD_TESTS
+    friend class CaptureWidgetShapeReselectionTest;
+#endif
+
 public:
     explicit CaptureWidget(const CaptureRequest& req,
                            bool fullScreen = true,
@@ -122,7 +126,9 @@ private:
     void pushObjectsStateToUndoStack();
     void releaseActiveTool();
     void uncheckActiveTool();
-    int selectToolItemAtPos(const QPoint& pos);
+    int selectToolItemAtPos(const QPoint& pos,
+                            bool allowActiveTwoPointTool = false);
+    void prepareToolDrag(const QPoint& pressPos);
     void showColorPicker(const QPoint& pos);
     bool startDrawObjectTool(const QPoint& pos);
     bool eraseWholeStrokesBetween(const QPoint& from, const QPoint& to);
@@ -224,6 +230,7 @@ private:
 
     QPoint m_mousePressedPos;
     QPoint m_activeToolOffsetToMouseOnStart;
+    bool m_activeToolOffsetToMouseOnStartValid{ false };
     QPoint m_lastWholeStrokeErasePos;
     bool m_wholeStrokeEraseChanged{ false };
     QRect m_deferredWindowGeometry;
@@ -242,6 +249,7 @@ private:
 
     // For start moving after more than X offset
     QPoint m_startMovePos;
+    bool m_startMovePosValid{ false };
     bool m_startMove;
 
     // Grid
