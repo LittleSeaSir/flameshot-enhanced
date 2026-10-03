@@ -22,6 +22,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Trust the checked-out workspace in the container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Build and test RPM
         env:
           FLAMESHOT_BUILD_JOBS: '2'

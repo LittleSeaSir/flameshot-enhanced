@@ -32,7 +32,7 @@ commit=$(git rev-parse --short=12 HEAD)
 git archive --format=tar --prefix="${archive_name}/" HEAD |
     gzip -n > "$rpm_dir/SOURCES/${archive_name}.tar.gz"
 
-rpmbuild -ba packaging/rpm/flameshot-enhanced.spec \
+rpmbuild --noclean -ba packaging/rpm/flameshot-enhanced.spec \
     --define "_topdir $rpm_dir" \
     --define "commit $commit" \
     --define "_smp_build_ncpus $jobs" \
