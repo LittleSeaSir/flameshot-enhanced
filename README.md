@@ -1,3 +1,54 @@
+# Flameshot Enhanced · 独立增强分支
+
+这是 [LittleSeaSir/flameshot-enhanced](https://github.com/LittleSeaSir/flameshot-enhanced) 独立维护的公开分支，基于 [Flameshot](https://github.com/flameshot-org/flameshot) 开发。它不是 Flameshot 官方版本，也不代表上游项目。本分支面向截图标注和钉图工作流，独立发布和维护。
+
+This is an independently maintained fork of [Flameshot](https://github.com/flameshot-org/flameshot), focused on annotation and pinned-image editing. It is not an official Flameshot release. Fork-specific packages, issues, and releases belong in this repository.
+
+## 本分支的增强功能
+
+- 更平滑的自由笔触；橡皮支持像素擦除和整笔擦除。
+- 钉图保留截图位置，可拖动、置顶，并在当前位置重新编辑；编辑时背景锁定，确认后保留位置。
+- 分数缩放下保留原始截图像素，减少截图与钉图重新编辑时的模糊。
+- 截图选区的四角和四边共 8 个控制点可拖动调整大小。
+- 矩形、圆、直线等固定图形可重新选中和移动。
+- KDE Wayland 下启动截图时自动识别鼠标所在窗口，单击选中；也可拖动进行自定义框选。
+
+## 下载与支持范围
+
+本分支版本：**`v14.0.0-littlesea.1`**。安装包和校验文件位于[本分支 Releases](https://github.com/LittleSeaSir/flameshot-enhanced/releases)，详细说明见[本次发布说明](docs/releases/v14.0.0-littlesea.1.md)。
+
+首个 RPM 面向 **Fedora 44、x86_64、KDE Plasma 6、Wayland**。RPM 使用系统提供的 Qt、KDE 和截图 Portal 依赖，并非包含所有运行环境的通用 Linux 安装包。其他 Fedora 版本、发行版和 CPU 架构需要另行构建、验证。
+
+窗口自动识别依赖 KWin；其他桌面或无法取得窗口列表时会退回整屏预选。GNOME Wayland、Sway、Hyprland 和 X11 尚未完成本分支的完整验证，钉图定位、置顶及重新编辑行为可能与 KDE Wayland 不同。
+
+### Fedora 44 安装
+
+1. 从本分支 Release 下载 `flameshot-enhanced-14.0.0-1.littlesea.fc44.x86_64.rpm` 和 `SHA256SUMS`，保存到同一目录。该 RPM **未进行 GPG 签名**；先核对下载来源，再校验文件完整性：
+
+   ```sh
+   sha256sum --check --ignore-missing SHA256SUMS
+   ```
+
+   确认 RPM 对应条目显示 `OK`。SHA-256 校验不能代替发布者签名。
+
+2. 保存仍需保留的截图、钉图，退出所有正在运行的 Flameshot 实例。如果曾配置自动重启服务，先停止该服务。本分支保留 `flameshot` 命令和服务标识，**不能与官方 `flameshot` 软件包并存**；已安装官方版本时，先通过软件包管理器卸载它。
+
+3. 在下载目录执行：
+
+   ```sh
+   sudo dnf install ./flameshot-enhanced-14.0.0-1.littlesea.fc44.x86_64.rpm
+   ```
+
+4. 从应用菜单启动，或执行 `flameshot gui` 截图。检查已有截图快捷键、自启动项是否仍指向旧的源码构建、AppImage 或 Flatpak 路径，必要时改为安装后的 `flameshot` 命令。
+
+## 来源、许可与源码
+
+感谢 Flameshot 上游及所有贡献者。本分支保留原有版权和许可声明；主代码遵循 [GPLv3+](LICENSE)，图标和第三方组件各自的许可见下方原项目说明及对应目录。与发布包对应的源码和构建配置公开在本仓库的 [v14.0.0-littlesea.1 标签](https://github.com/LittleSeaSir/flameshot-enhanced/tree/v14.0.0-littlesea.1) 中。
+
+以下保留 Flameshot 上游 README 作为通用使用和编译参考。其中的上游状态徽章、下载渠道、版本号、跨平台安装说明和支持承诺属于原项目，不表示本分支已经提供或验证相同的软件包。下载本增强版请使用上面的本分支 Releases。
+
+---
+
 <div align="center">
   <p>
     <h1>

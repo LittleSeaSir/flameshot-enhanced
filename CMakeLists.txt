@@ -2,9 +2,10 @@ cmake_minimum_required(VERSION 3.22)
 # cmake_policy(SET CMP0076 OLD)
 
 set(FLAMESHOT_VERSION 14.0.0)
+set(FLAMESHOT_VERSION_SUFFIX "-littlesea.1" CACHE STRING "Independent fork release suffix")
 
-# Flameshot-org
-set(GIT_API_URL "https://api.github.com/repos/flameshot-org/flameshot/releases/latest")
+# Independently maintained fork; upstream release checks are disabled by default.
+set(GIT_API_URL "https://api.github.com/repos/LittleSeaSir/flameshot-enhanced/releases/latest")
 
 project(
   flameshot
@@ -83,7 +84,7 @@ option(USE_KDSINGLEAPPLICATION "Use KDSingleApplication library" ON)
 option(USE_BUNDLED_KDSINGLEAPPLICATION "Use a bundled version of the KDSingleApplication library" ${USE_KDSINGLEAPPLICATION})
 option(USE_LAUNCHER_ABSOLUTE_PATH "Use absolute path for the desktop launcher" ON)
 option(USE_WAYLAND_CLIPBOARD "USE KF Gui Wayland Clipboard" OFF)
-option(DISABLE_UPDATE_CHECKER "Disable check for updates" OFF)
+option(DISABLE_UPDATE_CHECKER "Disable check for updates" ON)
 option(ENABLE_IMGUR "Enable Imgur Uploader" OFF)
 option(FLAMESHOT_BUILD_TESTS "Build Flameshot unit tests" OFF)
 

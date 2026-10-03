@@ -1,0 +1,36 @@
+name: Fork RPM (Fedora 44)
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*-littlesea.*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rpm:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - name: Install build dependencies
+        run: >-
+          dnf install -y git rpm-build redhat-rpm-config cmake ninja-build
+          gcc-c++ qt6-qtbase-devel qt6-qtsvg-devel qt6-qttools-devel
+          kf6-kguiaddons-devel desktop-file-utils libappstream-glib
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Build and test RPM
+        env:
+          FLAMESHOT_BUILD_JOBS: '2'
+        run: bash scripts/build-rpm.sh
+      - name: Upload binary and source packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: flameshot-enhanced-fedora44-x86_64
+          path: |
+            build/rpm/RPMS/**/*.rpm
+            build/rpm/SRPMS/*.rpm
+          if-no-files-found: error

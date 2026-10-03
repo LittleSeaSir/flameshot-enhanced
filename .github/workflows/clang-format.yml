@@ -18,6 +18,7 @@ on:
 
 jobs:
   build:
+    if: github.repository == 'flameshot-org/flameshot'
     runs-on: ubuntu-latest
 
     steps:
