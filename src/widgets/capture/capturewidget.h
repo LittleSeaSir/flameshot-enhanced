@@ -142,6 +142,7 @@ private:
     void initShortcuts();
     void initButtons();
     void initHelpMessage();
+    void dismissHelpMessage();
     void initQuitPrompt();
     void startWindowSnapPreview(const QVector<QRectF>& candidates,
                                 const QRectF& screenGeometry,

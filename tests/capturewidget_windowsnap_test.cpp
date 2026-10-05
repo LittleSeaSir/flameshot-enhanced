@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Flameshot Contributors
 
 #include "widgets/capture/capturewidget.h"
+#include "widgets/capture/overlaymessage.h"
 
 #include <QApplication>
 #include <QImage>
@@ -114,12 +115,59 @@ public:
         // Reset only the capture-specific state before invoking the same snap
         // and mouse-event paths used by a normal fullscreen capture.
         CaptureWidget widget(source, QRect(20, 20, 400, 300));
+        require(OverlayMessage::instance()->isHidden(),
+                "pinned-image editor displayed capture-selection help");
+        widget.show();
+        QApplication::processEvents();
         widget.m_pinEditMode = false;
         widget.resize(screenGeometry.size().toSize());
         widget.m_context.screenshot = source;
         widget.m_context.origScreenshot = source;
         widget.m_context.fullscreen = true;
         widget.m_context.widgetOffset = screenGeometry.topLeft().toPoint();
+
+        // Reproduce startup with an unchanged full-screen candidate. Hiding
+        // selection first lets us prepare its geometry without emitting a
+        // geometryChanged signal, just like the initial default selection.
+        widget.m_selection->hide();
+        widget.m_selection->setGeometry(widget.rect());
+        widget.initHelpMessage();
+        if (OverlayMessage::instance()->isHidden()) {
+            OverlayMessage::push(widget.m_helpMessage);
+        }
+        require(!OverlayMessage::instance()->isHidden(),
+                "capture help was not shown before selecting an area");
+        widget.startWindowSnapPreview({}, screenGeometry, overlapGlobal);
+        press(widget, overlapLocal);
+        release(widget, overlapLocal);
+        require(OverlayMessage::instance()->isHidden(),
+                "unchanged full-screen click left help over the annotation canvas");
+        require(widget.m_context.selection == screenshotBounds,
+                "dismissing help changed the full-screen physical selection");
+        require(widget.pixmap().toImage() == source.toImage(),
+                "full-screen selection did not preserve the source pixels");
+
+        // Clearing the selection restores help; Ctrl+A dismisses it again.
+        widget.m_selection->hide();
+        require(!OverlayMessage::instance()->isHidden(),
+                "clearing selection did not restore capture help");
+        widget.selectAll();
+        require(OverlayMessage::instance()->isHidden(),
+                "select-all left capture help visible");
+        widget.selectAll();
+        require(OverlayMessage::instance()->isHidden(),
+                "repeated select-all brought help back");
+
+        // Selection changes must not pop a message owned by another tool.
+        const QString toolHelp = QStringLiteral("Color picker instructions");
+        OverlayMessage::push(toolHelp);
+        widget.selectAll();
+        require(OverlayMessage::instance()->text() == toolHelp &&
+                  !OverlayMessage::instance()->isHidden(),
+                "select-all removed another tool's overlay message");
+        OverlayMessage::pop();
+        require(OverlayMessage::instance()->isHidden(),
+                "dismissed capture help remained underneath another tool's message");
 
         widget.startWindowSnapPreview(
           bottomToTop, screenGeometry, overlapGlobal);
@@ -155,11 +203,14 @@ public:
         hover(widget, overlapLocal);
         require(widget.m_selection->geometry() == expectedPreview,
                 "hovering back over windows did not restore the top target");
+        OverlayMessage::push(widget.m_helpMessage);
         press(widget, overlapLocal);
         release(widget, overlapLocal);
 
         require(!widget.m_windowSnapPreviewActive,
                 "single click did not lock the snapped selection");
+        require(OverlayMessage::instance()->isHidden(),
+                "unchanged window click left help over the annotation canvas");
         require(widget.m_selection->mouseInteraction() ==
                   SelectionWidget::MouseInteraction::Full,
                 "single click did not restore full selection interaction");
@@ -213,6 +264,9 @@ public:
                   widget.m_context.selection == expectedManualPhysical,
                 "manual selection did not use its normal DPR conversion");
 
+        // Hide while derived members are still alive: visibility callbacks
+        // must not access them during QWidget's later child destruction.
+        widget.hide();
         if (passed) {
             qInfo() << "CaptureWidget window snap test passed";
             return EXIT_SUCCESS;

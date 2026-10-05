@@ -304,7 +304,9 @@ CaptureWidget::CaptureWidget(const CaptureRequest& req,
 
     if (m_config.showHelp()) {
         initHelpMessage();
-        OverlayMessage::push(m_helpMessage);
+        if (m_selection->isHidden()) {
+            OverlayMessage::push(m_helpMessage);
+        }
     }
 
     initQuitPrompt();
@@ -510,7 +512,9 @@ CaptureWidget::CaptureWidget(const QPixmap& preloaded,
     OverlayMessage::init(this, overlayArea);
     if (m_config.showHelp()) {
         initHelpMessage();
-        OverlayMessage::push(m_helpMessage);
+        if (m_selection->isHidden()) {
+            OverlayMessage::push(m_helpMessage);
+        }
     }
     initQuitPrompt();
     updateCursor();
@@ -721,6 +725,18 @@ void CaptureWidget::initHelpMessage()
     keyMap << std::pair(tr("Esc"), tr("Exit"));
 
     m_helpMessage = OverlayMessage::compileFromKeyMap(keyMap);
+}
+
+void CaptureWidget::dismissHelpMessage()
+{
+    // Confirmation can leave the preview geometry unchanged, particularly
+    // for a full-screen candidate. Remove capture help explicitly, without
+    // popping instructions owned by another tool such as the color picker.
+    if (!m_helpMessage.isEmpty() && OverlayMessage::instance() &&
+        OverlayMessage::instance()->parentWidget() == this &&
+        OverlayMessage::instance()->text() == m_helpMessage) {
+        OverlayMessage::pop();
+    }
 }
 
 QPixmap CaptureWidget::pixmap()
@@ -1983,9 +1999,10 @@ void CaptureWidget::initSelection()
         m_buttonHandler->hide();
         updateCursor();
         updateSizeIndicator();
-        OverlayMessage::pop();
+        dismissHelpMessage();
     });
     connect(m_selection, &SelectionWidget::geometrySettled, this, [this]() {
+        dismissHelpMessage();
         if (m_selection->isVisibleTo(this)) {
             auto& req = m_context.request;
             if (req.tasks() & CaptureRequest::ACCEPT_ON_SELECT) {
@@ -2000,7 +2017,7 @@ void CaptureWidget::initSelection()
         }
     });
     connect(m_selection, &SelectionWidget::visibilityChanged, this, [this]() {
-        if (!m_selection->isVisible() && !m_helpMessage.isEmpty()) {
+        if (m_selection->isHidden() && !m_helpMessage.isEmpty()) {
             OverlayMessage::push(m_helpMessage);
         }
     });
