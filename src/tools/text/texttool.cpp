@@ -353,5 +353,5 @@ void TextTool::setEditMode(bool editMode)
 
 bool TextTool::isChanged()
 {
-    return QString::compare(m_text, m_textOld, Qt::CaseInsensitive) != 0;
+    return m_text != m_textOld;
 }

@@ -6,6 +6,7 @@ find_package(Qt${QT_VERSION_MAJOR} CONFIG REQUIRED Gui Widgets)
 target_sources(
   flameshot
   PRIVATE capturewidget_shape_reselection_test.cpp
+          capturewidget_text_reediting_test.cpp
           capturewidget_windowsnap_test.cpp)
 target_compile_definitions(flameshot PRIVATE FLAMESHOT_BUILD_TESTS=1)
 add_test(
@@ -20,6 +21,13 @@ add_test(
   COMMAND $<TARGET_FILE:flameshot> --self-test-capture-window-snap)
 set_tests_properties(
   capturewidget_windowsnap_test
+  PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_test(
+  NAME capturewidget_text_reediting_test
+  COMMAND $<TARGET_FILE:flameshot> --self-test-capture-text-reediting)
+set_tests_properties(
+  capturewidget_text_reediting_test
   PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(

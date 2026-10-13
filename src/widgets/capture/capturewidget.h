@@ -52,6 +52,7 @@ class CaptureWidget : public QWidget
 #ifdef FLAMESHOT_BUILD_TESTS
     friend class CaptureWidgetShapeReselectionTest;
     friend class CaptureWidgetWindowSnapTest;
+    friend class CaptureWidgetTextReeditingTest;
 #endif
 
 public:
@@ -132,6 +133,8 @@ private:
     int selectToolItemAtPos(const QPoint& pos,
                             bool allowActiveTwoPointTool = false);
     void prepareToolDrag(const QPoint& pressPos);
+    bool editTextAtPos(const QPoint& pos);
+    bool beginTextEditing(int layer);
     void showColorPicker(const QPoint& pos);
     bool startDrawObjectTool(const QPoint& pos);
     bool eraseWholeStrokesBetween(const QPoint& from, const QPoint& to);

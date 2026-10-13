@@ -44,6 +44,7 @@
 #include <QScreen>
 #include <QShortcut>
 #include <QShowEvent>
+#include <QSignalBlocker>
 #include <QWindow>
 #include <QtMath>
 
@@ -749,6 +750,17 @@ QPixmap CaptureWidget::pixmap()
 bool CaptureWidget::commitCurrentTool()
 {
     if (m_activeTool) {
+        if (m_activeTool->type() == CaptureTool::TYPE_TEXT &&
+            m_activeTool->editMode()) {
+            // An existing text object is already in the layer list. Save its
+            // change once, then render the list rather than appending a copy.
+            const QSignalBlocker blocker(m_panel);
+            m_panel->setActiveLayer(-1);
+            releaseActiveTool();
+            drawToolsData();
+            updateLayersPanel();
+            return true;
+        }
         processPixmapWithTool(&m_context.screenshot, m_activeTool);
         if (m_activeTool->isValid() && !m_activeTool->editMode() &&
             m_toolWidget) {
@@ -839,8 +851,21 @@ void CaptureWidget::releaseActiveTool()
         if (m_activeTool->editMode()) {
             // Object shouldn't be deleted here because it is in the undo/redo
             // stack, just set current pointer to null
-            m_activeTool->setEditMode(false);
-            if (m_activeTool->isChanged()) {
+            auto editedTool = m_activeTool;
+            m_activeTool = nullptr;
+            editedTool->setEditMode(false);
+            if (editedTool->type() == CaptureTool::TYPE_TEXT &&
+                !editedTool->isValid()) {
+                // Removing every character removes the layer as one undoable
+                // edit, instead of retaining an invisible selectable object.
+                for (int i = 0; i < m_captureToolObjects.size(); ++i) {
+                    if (m_captureToolObjects.at(i) == editedTool) {
+                        m_captureToolObjects.removeAt(i);
+                        break;
+                    }
+                }
+            }
+            if (editedTool->isChanged()) {
                 pushObjectsStateToUndoStack();
             }
         } else {
@@ -1238,6 +1263,58 @@ void CaptureWidget::prepareToolDrag(const QPoint& pressPos)
     }
 }
 
+bool CaptureWidget::editTextAtPos(const QPoint& pos)
+{
+    if (m_toolWidget && m_toolWidget->geometry().contains(pos)) {
+        // Normal clicks in QTextEdit are handled by the child. Do not replace
+        // the editor or reset the undo baseline if an event reaches us too.
+        m_mouseIsClicked = false;
+        return true;
+    }
+
+    // Committing may replace the layer list or remove an empty text object.
+    // Hit-test afterwards so neither pointers nor indices become stale.
+    commitCurrentTool();
+    for (int i = m_captureToolObjects.size() - 1; i >= 0; --i) {
+        const auto tool = m_captureToolObjects.at(i);
+        if (tool && tool->type() == CaptureTool::TYPE_TEXT &&
+            tool->boundingRect().adjusted(-5, -5, 5, 5).contains(pos)) {
+            return beginTextEditing(i);
+        }
+    }
+    m_panel->setActiveLayer(-1);
+    return false;
+}
+
+bool CaptureWidget::beginTextEditing(int layer)
+{
+    const auto text = m_captureToolObjects.at(layer);
+    if (!text || text->type() != CaptureTool::TYPE_TEXT) {
+        return false;
+    }
+    if (m_activeTool == text && m_toolWidget) {
+        m_mouseIsClicked = false;
+        m_toolWidget->setFocus();
+        return true;
+    }
+
+    const QSignalBlocker blocker(m_panel);
+    m_panel->setActiveLayer(layer);
+    m_captureToolObjectsBackup = m_captureToolObjects;
+    m_activeTool = text;
+    m_activeTool->setEditMode(true);
+    m_mouseIsClicked = false;
+    m_context.mousePos = *m_activeTool->pos();
+    m_context.toolSize = m_activeTool->size();
+    drawToolsData();
+    updateLayersPanel();
+    handleToolSignal(CaptureTool::REQ_ADD_CHILD_WIDGET);
+    m_panel->setToolWidget(m_activeTool->configurationWidget());
+    updateSelectionState();
+    updateCursor();
+    return true;
+}
+
 void CaptureWidget::startWindowSnapPreview(
   const QVector<QRectF>& candidates,
   const QRectF& screenGeometry,
@@ -1413,6 +1490,11 @@ void CaptureWidget::mousePressEvent(QMouseEvent* e)
     } else if (e->button() == Qt::LeftButton) {
         m_mouseIsClicked = true;
 
+        if (activeButtonToolType() == CaptureTool::TYPE_TEXT &&
+            editTextAtPos(m_mousePressedPos)) {
+            return;
+        }
+
         // Fixed-shape tools stay active for continuous drawing. Before
         // starting another shape, give an existing fixed shape under the
         // cursor a chance to be selected and moved with this same gesture.
@@ -1462,20 +1544,7 @@ void CaptureWidget::mouseDoubleClickEvent(QMouseEvent* event)
     int activeLayerIndex = m_panel->activeLayerIndex();
     if (activeLayerIndex != -1) {
         // Start object editing
-        auto activeTool = m_captureToolObjects.at(activeLayerIndex);
-        if (activeTool && activeTool->type() == CaptureTool::TYPE_TEXT) {
-            m_activeTool = activeTool;
-            m_mouseIsClicked = false;
-            m_context.mousePos = *m_activeTool->pos();
-            m_captureToolObjectsBackup = m_captureToolObjects;
-            m_activeTool->setEditMode(true);
-            drawToolsData();
-            updateLayersPanel();
-            handleToolSignal(CaptureTool::REQ_ADD_CHILD_WIDGET);
-            if (!m_activeTool.isNull()) {
-                m_panel->setToolWidget(m_activeTool->configurationWidget());
-            }
-        }
+        beginTextEditing(activeLayerIndex);
     } else if (m_selection->geometry().contains(event->pos())) {
         if ((event->button() == Qt::LeftButton) &&
             (m_config.copyOnDoubleClick())) {

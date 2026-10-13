@@ -41,6 +41,7 @@ Q_DECLARE_METATYPE(QList<int>)
 #ifdef FLAMESHOT_BUILD_TESTS
 int runCaptureWidgetShapeReselectionTest(int argc, char* argv[]);
 int runCaptureWidgetWindowSnapTest(int argc, char* argv[]);
+int runCaptureWidgetTextReeditingTest(int argc, char* argv[]);
 #endif
 
 #if defined(USE_KDSINGLEAPPLICATION) && defined(Q_OS_UNIX)
@@ -207,6 +208,10 @@ void reinitializeAsQApplication(int& argc,
 int main(int argc, char* argv[])
 {
 #ifdef FLAMESHOT_BUILD_TESTS
+    if (argc == 2 &&
+        qstrcmp(argv[1], "--self-test-capture-text-reediting") == 0) {
+        return runCaptureWidgetTextReeditingTest(argc, argv);
+    }
     if (argc == 2 &&
         qstrcmp(argv[1], "--self-test-capture-shape-reselection") == 0) {
         return runCaptureWidgetShapeReselectionTest(argc, argv);
