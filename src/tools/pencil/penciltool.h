@@ -5,6 +5,8 @@
 
 #include "tools/abstractpathtool.h"
 
+#include <QCursor>
+
 class PencilTool : public AbstractPathTool
 {
     Q_OBJECT
@@ -14,6 +16,7 @@ public:
     QIcon icon(const QColor& background, bool inEditor) const override;
     QString name() const override;
     QString description() const override;
+    static QCursor drawingCursor(qreal devicePixelRatio);
 
     CaptureTool* copy(QObject* parent = nullptr) override;
 

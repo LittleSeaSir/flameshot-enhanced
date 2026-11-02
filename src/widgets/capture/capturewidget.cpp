@@ -17,6 +17,7 @@
 #include "tools/copy/copytool.h"
 #include "tools/abstracttwopointtool.h"
 #include "tools/eraser/erasertool.h"
+#include "tools/pencil/penciltool.h"
 #include "tools/pin/pineditorlayout.h"
 #include "tools/text/texttool.h"
 #include "utils/abstractlogger.h"
@@ -2498,6 +2499,8 @@ void CaptureWidget::updateCursor()
             text = qobject_cast<TextTool*>(activeButtonTool());
         }
         setCursor(text->insertionCursor(devicePixelRatioF()));
+    } else if (activeButtonToolType() == CaptureTool::TYPE_PENCIL) {
+        setCursor(PencilTool::drawingCursor(devicePixelRatioF()));
     } else if (m_activeButton != nullptr &&
                activeButtonToolType() != CaptureTool::TYPE_MOVESELECTION) {
         setCursor(Qt::CrossCursor);
