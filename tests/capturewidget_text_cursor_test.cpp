@@ -8,11 +8,14 @@
 #include <QApplication>
 #include <QDir>
 #include <QImage>
+#include <QInputMethodEvent>
+#include <QEventLoop>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QScopeGuard>
 #include <QStandardPaths>
 #include <QTextCursor>
+#include <QTimer>
 
 #include <cmath>
 #include <cstdio>
@@ -141,6 +144,60 @@ public:
         QStandardPaths::setTestModeEnabled(true);
         QApplication app(argc, argv);
 
+        if (qEnvironmentVariableIsSet("FLAMESHOT_TEXT_CURSOR_LIVE_PROBE")) {
+            // Keep a real, fully mapped Wayland capture open long enough for
+            // its fractional-scale event and an external compositor screenshot.
+            CaptureWidget widget(CaptureRequest(CaptureRequest::GRAPHICAL_MODE));
+            widget.m_context.screenshot.fill(Qt::white);
+            widget.m_context.origScreenshot.fill(Qt::white);
+            widget.show();
+            widget.activateWindow();
+            QEventLoop loop;
+            bool displayedCorrectly = false;
+            QTimer::singleShot(1200, &loop, [&]() {
+                widget.finishWindowSnapPreview();
+                widget.selectAll();
+                for (auto* button : widget.findChildren<CaptureToolButton*>()) {
+                    if (button->tool()->type() == CaptureTool::TYPE_TEXT) {
+                        widget.setState(button);
+                        break;
+                    }
+                }
+                widget.toolSizeChanged(6);
+                widget.m_context.color = QColor(220, 32, 32);
+                const QPoint point = widget.mapFromGlobal(QCursor::pos());
+                click(widget, point);
+                auto* editor = qobject_cast<TextWidget*>(widget.m_toolWidget.data());
+                if (!editor) {
+                    loop.quit();
+                    return;
+                }
+                QInputMethodEvent input;
+                input.setCommitString(QStringLiteral("等等Ag"));
+                QApplication::sendEvent(editor, &input);
+                const QCursor cursor = editor->viewport()->cursor();
+                const qreal bufferScale = cursor.pixmap().devicePixelRatio();
+                displayedCorrectly = bufferScale >= 1.0 &&
+                  qAbs(bufferScale - std::round(bufferScale)) < 0.001 &&
+                  cursor.pixmap().height() / static_cast<int>(bufferScale) ==
+                    editor->firstLineTextRect().height() + 4;
+                std::fprintf(stderr,
+                             "LIVE cursor point=%d,%d windowDpr=%.3f editorDpr=%.3f "
+                             "pixmap=%dx%d pixmapDpr=%.3f glyphHeight=%d "
+                             "widgetFont=%d currentFont=%d\n",
+                             point.x(), point.y(), widget.devicePixelRatioF(),
+                             editor->devicePixelRatioF(), cursor.pixmap().width(),
+                             cursor.pixmap().height(), cursor.pixmap().devicePixelRatio(),
+                             editor->firstLineTextRect().height(), editor->font().pointSize(),
+                             editor->currentCharFormat().font().pointSize());
+                std::fflush(stderr);
+            });
+            QTimer::singleShot(9000, &loop, &QEventLoop::quit);
+            loop.exec();
+            widget.hide();
+            return displayedCorrectly ? EXIT_SUCCESS : EXIT_FAILURE;
+        }
+
         bool passed = true;
         auto require = [&passed](bool condition, const char* message) {
             if (!condition) {
@@ -217,16 +274,23 @@ public:
                 for (qreal dpr : { 1.0, 1.75, 2.0 }) {
                     const QCursor cursor = text->insertionCursor(dpr);
                     const QPixmap pixmap = cursor.pixmap();
+                    const qreal bufferScale = std::ceil(dpr);
                     require(!pixmap.isNull() &&
-                              qAbs(pixmap.devicePixelRatio() - dpr) < 0.001,
-                            "text cursor did not retain its screen DPR");
+                              qAbs(pixmap.devicePixelRatio() - bufferScale) < 0.001,
+                            "text cursor buffer scale is not Wayland-compatible");
                     require(pixmap.height() ==
-                              static_cast<int>(std::ceil((firstLine.height() + 4) * dpr)),
+                              static_cast<int>((firstLine.height() + 4) * bufferScale),
                             "text cursor physical height does not match the visible glyphs");
+                    // Reproduce what the Wayland compositor actually sees,
+                    // rather than only drawing QPixmap with its float DPR.
+                    const int protocolScale = static_cast<int>(pixmap.devicePixelRatio());
+                    require(protocolScale > 0 &&
+                              pixmap.height() / protocolScale == firstLine.height() + 4,
+                            "Wayland would display an enlarged cursor buffer");
                     require(cursor.hotSpot().y() == 2 + (firstLine.height() - 1) / 2,
                             "text cursor hotspot is not the logical vertical center");
                     require(cursor.hotSpot().x() >= 0 &&
-                              cursor.hotSpot().x() < pixmap.width() / dpr,
+                              cursor.hotSpot().x() < pixmap.width() / bufferScale,
                             "text cursor hotspot escaped its logical image");
                 }
 

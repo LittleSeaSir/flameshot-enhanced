@@ -147,7 +147,11 @@ int TextWidget::fontTextHeight(const QFont& font)
 QCursor TextWidget::insertionCursor(int lineHeight, qreal devicePixelRatio)
 {
     const int height = qMax(8, lineHeight);
-    const qreal scale = devicePixelRatio > 0.0 ? devicePixelRatio : 1.0;
+    // Wayland wl_surface.buffer_scale is an integer. Qt 6.11 truncates a
+    // bitmap cursor's fractional DPR when sending it, without resampling the
+    // image: a 1.75x bitmap then appears 1.75x too large. Supersample at the
+    // next whole scale so both Qt's hotspot and Wayland's buffer agree.
+    const qreal scale = qMax(1, qCeil(devicePixelRatio));
     const QString key = QStringLiteral("%1:%2").arg(height).arg(scale);
     static QCache<QString, QCursor> cursors(32);
     if (const auto* cached = cursors.object(key)) {
