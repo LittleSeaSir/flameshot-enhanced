@@ -34,22 +34,32 @@ QString PencilTool::description() const
     return tr("Draw a smooth freehand stroke");
 }
 
-QCursor PencilTool::drawingCursor(qreal devicePixelRatio)
+QCursor PencilTool::drawingCursor(int strokeWidth, qreal devicePixelRatio)
 {
     // Wayland cursor buffer scales must be integers; a fractional pixmap DPR
     // can make the compositor enlarge the pointer on a scaled desktop.
     const int scale = qMax(1, qCeil(devicePixelRatio));
-    static QCache<int, QCursor> cursors;
-    if (const auto* cached = cursors.object(scale)) {
+    const int extent = 20 + 2 * qBound(1, strokeWidth, 50);
+    const qreal magnification = extent / 28.0;
+    const int tip = qRound(3 * magnification);
+    const quint64 key = (quint64(scale) << 32) | quint64(extent);
+    static QCache<quint64, QCursor> cursors(64);
+    if (const auto* cached = cursors.object(key)) {
         return *cached;
     }
 
-    QPixmap pixmap(28 * scale, 28 * scale);
+    QPixmap pixmap(extent * scale, extent * scale);
     pixmap.setDevicePixelRatio(scale);
     pixmap.fill(Qt::transparent);
     {
         QPainter painter(&pixmap);
         painter.setRenderHint(QPainter::Antialiasing);
+        // Rotate the pencil toward the upper left and scale around its tip.
+        // Keep the tip exactly on the integer hotspot at every brush size.
+        painter.translate(tip, tip);
+        painter.scale(magnification, magnification);
+        painter.rotate(90);
+        painter.translate(-3, -25);
         QPainterPath outline;
         outline.moveTo(3, 25);
         outline.lineTo(5, 18);
@@ -85,9 +95,8 @@ QCursor PencilTool::drawingCursor(qreal devicePixelRatio)
         painter.setBrush(QColor(45, 45, 45));
         painter.drawPolygon(QPolygonF{ { 3, 25 }, { 4, 22 }, { 6, 24 } });
     }
-    // The pencil points down-left, with its graphite tip at the drawing point.
-    const QCursor cursor(pixmap, 3, 25);
-    cursors.insert(scale, new QCursor(cursor));
+    const QCursor cursor(pixmap, tip, tip);
+    cursors.insert(key, new QCursor(cursor));
     return cursor;
 }
 

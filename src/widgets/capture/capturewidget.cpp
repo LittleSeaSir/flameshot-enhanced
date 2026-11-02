@@ -2239,7 +2239,9 @@ void CaptureWidget::onToolSizeChanged(int t)
     m_context.toolSize = t;
     CaptureTool* tool = activeButtonTool();
     if (tool && tool->showMousePreview()) {
-        setCursor(Qt::BlankCursor);
+        if (tool->type() != CaptureTool::TYPE_PENCIL) {
+            setCursor(Qt::BlankCursor);
+        }
         tool->onSizeChanged(t);
     } else if (tool && tool->type() == CaptureTool::TYPE_TEXT) {
         tool->onSizeChanged(t);
@@ -2264,6 +2266,10 @@ void CaptureWidget::onToolSizeChanged(int t)
         }
         drawToolsData();
         updateTool(toolItem);
+    }
+
+    if (tool && tool->type() == CaptureTool::TYPE_PENCIL) {
+        updateCursor();
     }
 
     // Force a repaint to prevent artifacting
@@ -2500,7 +2506,8 @@ void CaptureWidget::updateCursor()
         }
         setCursor(text->insertionCursor(devicePixelRatioF()));
     } else if (activeButtonToolType() == CaptureTool::TYPE_PENCIL) {
-        setCursor(PencilTool::drawingCursor(devicePixelRatioF()));
+        setCursor(PencilTool::drawingCursor(m_context.toolSize,
+                                            devicePixelRatioF()));
     } else if (m_activeButton != nullptr &&
                activeButtonToolType() != CaptureTool::TYPE_MOVESELECTION) {
         setCursor(Qt::CrossCursor);

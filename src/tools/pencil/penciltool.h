@@ -16,7 +16,7 @@ public:
     QIcon icon(const QColor& background, bool inEditor) const override;
     QString name() const override;
     QString description() const override;
-    static QCursor drawingCursor(qreal devicePixelRatio);
+    static QCursor drawingCursor(int strokeWidth, qreal devicePixelRatio);
 
     CaptureTool* copy(QObject* parent = nullptr) override;
 
