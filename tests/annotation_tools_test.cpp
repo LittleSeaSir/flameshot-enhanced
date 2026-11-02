@@ -10,9 +10,12 @@
 #include "widgets/capture/capturetoolobjects.h"
 
 #include <QApplication>
+#include <QImage>
 #include <QPainter>
 #include <QRadioButton>
+#include <QtMath>
 
+#include <cstdio>
 #include <cstdlib>
 #include <memory>
 #include <utility>
@@ -50,8 +53,92 @@ void require(bool condition, const char* message)
 {
     if (!condition) {
         qCritical() << message;
+        std::fprintf(stderr, "%s\n", message);
         std::exit(EXIT_FAILURE);
     }
+}
+
+QRect inkBounds(const QImage& image)
+{
+    QRect bounds;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            if (image.pixelColor(x, y).alpha() > 0) {
+                bounds = bounds.united(QRect(x, y, 1, 1));
+            }
+        }
+    }
+    return bounds;
+}
+
+void verifyPencilTipPreview()
+{
+    for (qreal dpr : { 1.0, 1.75, 2.0 }) {
+        for (int width : { 1, 2, 4, 10, 25, 50 }) {
+            QPixmap preview(qCeil(192 * dpr), qCeil(128 * dpr));
+            preview.setDevicePixelRatio(dpr);
+            preview.fill(Qt::transparent);
+            QPixmap stroke(preview.size());
+            stroke.setDevicePixelRatio(dpr);
+            stroke.fill(Qt::transparent);
+            CaptureContext context;
+            context.color = Qt::red;
+            context.toolSize = width;
+            context.mousePos = QPoint(64, 64);
+            context.penStyle = 0;
+            TestPencilTool pencil;
+            pencil.drawStart(context);
+            pencil.drawMove(QPoint(160, 64));
+            pencil.drawEnd(QPoint(160, 64));
+            {
+                QPainter painter(&stroke);
+                pencil.process(painter, stroke);
+            }
+            {
+                QPainter painter(&preview);
+                pencil.paintMousePreview(painter, context);
+            }
+            const QImage dot = preview.toImage();
+            const QRect dotBounds = inkBounds(dot);
+            const QRect strokeBounds = inkBounds(stroke.toImage());
+            if (dotBounds.top() != strokeBounds.top() ||
+                dotBounds.bottom() != strokeBounds.bottom()) {
+                std::fprintf(stderr,
+                             "width=%d dpr=%.2f dot=%d..%d stroke=%d..%d\n",
+                             width, dpr, dotBounds.top(), dotBounds.bottom(),
+                             strokeBounds.top(), strokeBounds.bottom());
+            }
+            require(!dotBounds.isEmpty() &&
+                      dotBounds.top() == strokeBounds.top() &&
+                      dotBounds.bottom() == strokeBounds.bottom(),
+                    "pencil tip preview does not match the painted stroke width");
+            require(qAbs(dotBounds.width() - dotBounds.height()) <= 1,
+                    "pencil tip preview is not a round dot");
+
+            const QCursor cursor = PencilTool::drawingCursor(width, dpr);
+            {
+                QPainter painter(&preview);
+                painter.drawPixmap(context.mousePos - cursor.hotSpot(),
+                                   cursor.pixmap());
+            }
+            const QImage combined = preview.toImage();
+            for (int y = dotBounds.top(); y <= dotBounds.bottom(); ++y) {
+                for (int x = dotBounds.left(); x <= dotBounds.right(); ++x) {
+                    if (dot.pixelColor(x, y).alpha() > 0 &&
+                        dot.pixelColor(x, y) != combined.pixelColor(x, y)) {
+                        std::fprintf(stderr,
+                                     "occlusion width=%d dpr=%.2f offset=%d,%d\n",
+                                     width, dpr, x - qRound(64 * dpr),
+                                     y - qRound(64 * dpr));
+                    }
+                    require(dot.pixelColor(x, y).alpha() == 0 ||
+                              dot.pixelColor(x, y) == combined.pixelColor(x, y),
+                            "pencil cursor hides the brush-size dot");
+                }
+            }
+        }
+    }
+    qInfo() << "Pencil preview pixels match strokes at 100%, 175% and 200%";
 }
 
 std::unique_ptr<TestPencilTool> makePencil(const QPoint& from,
@@ -138,6 +225,7 @@ void verifyFixedShape(const char* shape,
 int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
+    verifyPencilTipPreview();
 
     TestEraserTool eraser;
     require(eraser.mode() == EraserTool::Mode::WholeStroke,

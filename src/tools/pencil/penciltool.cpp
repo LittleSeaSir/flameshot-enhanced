@@ -41,21 +41,25 @@ QCursor PencilTool::drawingCursor(int strokeWidth, qreal devicePixelRatio)
     const int scale = qMax(1, qCeil(devicePixelRatio));
     const int extent = 20 + 2 * qBound(1, strokeWidth, 50);
     const qreal magnification = extent / 28.0;
-    const int tip = qRound(3 * magnification);
+    // The size dot is painted on the canvas at its actual device scale. Keep
+    // the pencil (including its white rim) behind the dot instead of covering
+    // the landing point with the cursor bitmap.
+    const int tip = qCeil((strokeWidth / 2.0 + 1.5 * magnification + 2) /
+                         qSqrt(2.0));
+    const int canvasExtent = extent + qMax(0, tip - qRound(3 * magnification));
     const quint64 key = (quint64(scale) << 32) | quint64(extent);
     static QCache<quint64, QCursor> cursors(64);
     if (const auto* cached = cursors.object(key)) {
         return *cached;
     }
 
-    QPixmap pixmap(extent * scale, extent * scale);
+    QPixmap pixmap(canvasExtent * scale, canvasExtent * scale);
     pixmap.setDevicePixelRatio(scale);
     pixmap.fill(Qt::transparent);
     {
         QPainter painter(&pixmap);
         painter.setRenderHint(QPainter::Antialiasing);
-        // Rotate the pencil toward the upper left and scale around its tip.
-        // Keep the tip exactly on the integer hotspot at every brush size.
+        // Point toward the upper-left dot, with the hotspot at the dot center.
         painter.translate(tip, tip);
         painter.scale(magnification, magnification);
         painter.rotate(90);
@@ -95,7 +99,7 @@ QCursor PencilTool::drawingCursor(int strokeWidth, qreal devicePixelRatio)
         painter.setBrush(QColor(45, 45, 45));
         painter.drawPolygon(QPolygonF{ { 3, 25 }, { 4, 22 }, { 6, 24 } });
     }
-    const QCursor cursor(pixmap, tip, tip);
+    const QCursor cursor(pixmap, 0, 0);
     cursors.insert(key, new QCursor(cursor));
     return cursor;
 }
@@ -126,11 +130,15 @@ void PencilTool::process(QPainter& painter, const QPixmap& pixmap)
 void PencilTool::paintMousePreview(QPainter& painter,
                                    const CaptureContext& context)
 {
-    painter.setPen(QPen(context.color,
-                        context.toolSize + 2,
-                        Qt::SolidLine,
-                        Qt::RoundCap));
-    painter.drawLine(context.mousePos, context.mousePos);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(context.color);
+    const qreal radius = context.toolSize / 2.0;
+    // A filled path keeps the exact round-cap geometry. A zero-length drawLine
+    // takes Qt's optimized point path, which offsets a one-pixel preview.
+    QPainterPath dot;
+    dot.addEllipse(QPointF(context.mousePos), radius, radius);
+    painter.drawPath(dot);
 }
 
 void PencilTool::drawStart(const CaptureContext& context)
