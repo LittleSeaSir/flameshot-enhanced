@@ -16,6 +16,7 @@
 #include <QStandardPaths>
 #include <QTextCursor>
 #include <QTimer>
+#include <QtMath>
 
 #include <cmath>
 #include <cstdio>
@@ -62,6 +63,22 @@ QRect alphaBounds(const QImage& original)
         const auto* pixels = reinterpret_cast<const QRgb*>(image.constScanLine(y));
         for (int x = 0; x < image.width(); ++x) {
             if (qAlpha(pixels[x]) > 0) {
+                bounds = bounds.united(QRect(x, y, 1, 1));
+            }
+        }
+    }
+    return bounds;
+}
+
+QRect darkStrokeBounds(const QImage& original)
+{
+    const QImage image = original.convertToFormat(QImage::Format_ARGB32);
+    QRect bounds;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor pixel = image.pixelColor(x, y);
+            if (pixel.alpha() > 128 && pixel.red() < 220 &&
+                pixel.green() < 220 && pixel.blue() < 220) {
                 bounds = bounds.united(QRect(x, y, 1, 1));
             }
         }
@@ -143,6 +160,7 @@ public:
         QCoreApplication::setOrganizationName(QStringLiteral("flameshot"));
         QStandardPaths::setTestModeEnabled(true);
         QApplication app(argc, argv);
+        QApplication::setCursorFlashTime(0);
 
         if (qEnvironmentVariableIsSet("FLAMESHOT_TEXT_CURSOR_LIVE_PROBE")) {
             // Keep a real, fully mapped Wayland capture open long enough for
@@ -172,9 +190,11 @@ public:
                     loop.quit();
                     return;
                 }
-                QInputMethodEvent input;
-                input.setCommitString(QStringLiteral("等等Ag"));
-                QApplication::sendEvent(editor, &input);
+                if (!qEnvironmentVariableIsSet("FLAMESHOT_TEXT_CURSOR_LIVE_EMPTY")) {
+                    QInputMethodEvent input;
+                    input.setCommitString(QStringLiteral("等等Ag"));
+                    QApplication::sendEvent(editor, &input);
+                }
                 const QCursor cursor = editor->viewport()->cursor();
                 const qreal bufferScale = cursor.pixmap().devicePixelRatio();
                 displayedCorrectly = bufferScale >= 1.0 &&
@@ -184,12 +204,19 @@ public:
                 std::fprintf(stderr,
                              "LIVE cursor point=%d,%d windowDpr=%.3f editorDpr=%.3f "
                              "pixmap=%dx%d pixmapDpr=%.3f glyphHeight=%d "
-                             "widgetFont=%d currentFont=%d\n",
+                             "widgetFont=%d currentFont=%d caretTop=%d caretHeight=%d "
+                             "inkTop=%d paintedCaretTop=%d paintedCaretHeight=%d focus=%d width=%d\n",
                              point.x(), point.y(), widget.devicePixelRatioF(),
                              editor->devicePixelRatioF(), cursor.pixmap().width(),
                              cursor.pixmap().height(), cursor.pixmap().devicePixelRatio(),
                              editor->firstLineTextRect().height(), editor->font().pointSize(),
-                             editor->currentCharFormat().font().pointSize());
+                             editor->currentCharFormat().font().pointSize(),
+                             editor->firstLineCursorRect().top(),
+                             editor->firstLineCursorRect().height(),
+                             editor->firstLineTextRect().top(),
+                             editor->visibleCaretRect().top() + editor->viewport()->pos().y(),
+                             editor->visibleCaretRect().height(), editor->hasFocus(),
+                             editor->cursorWidth());
                 std::fflush(stderr);
             });
             QTimer::singleShot(9000, &loop, &QEventLoop::quit);
@@ -255,6 +282,96 @@ public:
                 auto* editor = qobject_cast<TextWidget*>(widget.m_toolWidget.data());
                 if (!require(editor, "text cursor fixture did not open an input")) {
                     return EXIT_FAILURE;
+                }
+                QApplication::processEvents();
+                const QRect emptyInk = editor->firstLineTextRect();
+                const QRect caret = editor->visibleCaretRect();
+                const QRect widgetCaret = caret.translated(editor->viewport()->pos());
+                require(editor->cursorWidth() == 0,
+                        "native full-line caret is still painted");
+                require(widgetCaret.top() == emptyInk.top() &&
+                          widgetCaret.bottom() == emptyInk.bottom(),
+                        "empty input caret does not match the mouse pointer's height");
+                if (QGuiApplication::platformName() == QStringLiteral("offscreen")) {
+                    require(editor->hasFocus(), "caret painting test did not acquire focus");
+                }
+                if (editor->hasFocus()) {
+                    auto renderViewport = [editor](qreal scale) {
+                        const QSize size(qCeil(editor->viewport()->width() * scale),
+                                         qCeil(editor->viewport()->height() * scale));
+                        QImage image(size, QImage::Format_ARGB32);
+                        image.setDevicePixelRatio(scale);
+                        image.fill(Qt::white);
+                        editor->viewport()->render(&image);
+                        return image;
+                    };
+                    for (qreal scale : { 1.0, 1.75, 2.0 }) {
+                        const QImage paintedImage = renderViewport(scale);
+                        const QRect painted = darkStrokeBounds(paintedImage);
+                        QImage pointerImage(paintedImage.size(), QImage::Format_ARGB32);
+                        pointerImage.setDevicePixelRatio(scale);
+                        pointerImage.fill(Qt::white);
+                        const QCursor mousePointer = TextWidget::insertionCursor(
+                          emptyInk.height(), scale);
+                        {
+                            QPainter painter(&pointerImage);
+                            painter.drawPixmap(QPoint(caret.left(), caret.center().y()) -
+                                                 mousePointer.hotSpot(),
+                                               mousePointer.pixmap());
+                        }
+                        const QRect pointerStroke = darkStrokeBounds(pointerImage);
+                        require(!painted.isEmpty() &&
+                                  qAbs(painted.top() - pointerStroke.top()) <= 2 &&
+                                  qAbs(painted.bottom() - pointerStroke.bottom()) <= 2,
+                                "painted input caret extends above or below the I-beam");
+                    }
+                    editor->clearFocus();
+                    QApplication::processEvents();
+                    require(darkStrokeBounds(renderViewport(1.75)).isEmpty(),
+                            "input caret remained visible after losing focus");
+                    editor->setFocus();
+
+                    // Keep the input method's preedit text, cursor position
+                    // and request to hide the caret when drawing it ourselves.
+                    const int emptyCaretX = editor->visibleCaretRect().left();
+                    const QString preeditText = QStringLiteral("zhong");
+                    QList<QInputMethodEvent::Attribute> attributes;
+                    attributes.append({ QInputMethodEvent::Cursor,
+                                        static_cast<int>(preeditText.size()),
+                                        1, QVariant() });
+                    QInputMethodEvent preedit(preeditText, attributes);
+                    QApplication::sendEvent(editor, &preedit);
+                    require(editor->toPlainText().isEmpty() &&
+                              !redInkBounds(renderViewport(1.75)).isEmpty(),
+                            "input method preedit text was lost while painting");
+                    require(editor->visibleCaretRect().left() > emptyCaretX,
+                            "input caret did not follow the preedit cursor");
+                    attributes[0].length = 0;
+                    QInputMethodEvent hiddenPreedit(preeditText, attributes);
+                    QApplication::sendEvent(editor, &hiddenPreedit);
+                    require(darkStrokeBounds(renderViewport(1.75)).isEmpty(),
+                            "input method could not hide the preedit caret");
+                    QInputMethodEvent commit;
+                    commit.setCommitString(QStringLiteral("中"));
+                    QApplication::sendEvent(editor, &commit);
+                    require(editor->toPlainText() == QStringLiteral("中"),
+                            "input method could not commit Chinese text");
+
+                    editor->selectAll();
+                    const QImage selected = renderViewport(1.0);
+                    const QColor highlight = editor->palette().color(QPalette::Active,
+                                                                      QPalette::Highlight);
+                    bool paintedHighlight = false;
+                    for (int y = 0; y < selected.height() && !paintedHighlight; ++y) {
+                        for (int x = 0; x < selected.width(); ++x) {
+                            if (selected.pixelColor(x, y) == highlight) {
+                                paintedHighlight = true;
+                                break;
+                            }
+                        }
+                    }
+                    require(paintedHighlight,
+                            "selected input text lost its highlight");
                 }
                 editor->setPlainText(content);
                 QApplication::processEvents();
@@ -386,6 +503,22 @@ public:
                 editor = qobject_cast<TextWidget*>(widget.m_toolWidget.data());
                 require(editor && editor->pos() == origin && editor->toPlainText() == content,
                         "reopening text reapplied the creation offset");
+                if (editor) {
+                    editor->setPlainText(content + QStringLiteral("\n") + content);
+                    QTextCursor end = editor->textCursor();
+                    end.movePosition(QTextCursor::End);
+                    editor->setTextCursor(end);
+                    const QRect lastLineCaret = editor->visibleCaretRect();
+                    require(lastLineCaret.top() > editor->firstLineTextRect().bottom() -
+                                                   editor->viewport()->pos().y(),
+                            "insertion caret did not follow the second line");
+                    end.movePosition(QTextCursor::Start);
+                    editor->setTextCursor(end);
+                    require(editor->visibleCaretRect().top() ==
+                              editor->firstLineTextRect().top() - editor->viewport()->pos().y(),
+                            "insertion caret did not follow navigation back to the first line");
+                    editor->setPlainText(content);
+                }
                 widget.commitCurrentTool();
                 std::fprintf(stderr,
                              "Text cursor %s %d pt: glyphs %d px, ink y %d..%d\n",
