@@ -22,6 +22,7 @@ public:
 protected:
     void showEvent(QShowEvent* e);
     void resizeEvent(QResizeEvent* e);
+    bool viewportEvent(QEvent* e) override;
 
 signals:
     void textUpdated(const QString& s);

@@ -230,8 +230,31 @@ public:
                             "text cursor hotspot escaped its logical image");
                 }
 
+                // QTextEdit can reset its viewport cursor while selecting a
+                // word or paragraph. Keep the size-aware pointer after the
+                // double-click/release/third-click gesture as well.
+                QWidget* viewport = editor->viewport();
+                const QPoint viewportPoint = viewport->mapFrom(
+                  editor,
+                  QPoint(editor->firstLineCursorRect().left() + 2,
+                         firstLine.center().y()));
+                for (auto type : { QEvent::MouseButtonDblClick,
+                                   QEvent::MouseButtonRelease,
+                                   QEvent::MouseButtonPress,
+                                   QEvent::MouseButtonRelease }) {
+                    QMouseEvent event(type,
+                                      QPointF(viewportPoint),
+                                      QPointF(viewport->mapToGlobal(viewportPoint)),
+                                      Qt::LeftButton,
+                                      type == QEvent::MouseButtonRelease
+                                        ? Qt::NoButton
+                                        : Qt::LeftButton,
+                                      Qt::NoModifier);
+                    QApplication::sendEvent(viewport, &event);
+                }
                 const QPixmap viewportCursor = editor->viewport()->cursor().pixmap();
-                require(!viewportCursor.isNull() &&
+                require(editor->viewport()->cursor().shape() == Qt::BitmapCursor &&
+                          !viewportCursor.isNull() &&
                           qAbs(viewportCursor.height() /
                                  viewportCursor.devicePixelRatio() -
                                (firstLine.height() + 4)) <= 1.0,

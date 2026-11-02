@@ -4,6 +4,7 @@
 #include "textwidget.h"
 
 #include <QCache>
+#include <QEvent>
 #include <QPainter>
 #include <QGlyphRun>
 #include <QTextBlock>
@@ -82,6 +83,26 @@ void TextWidget::resizeEvent(QResizeEvent* e)
     m_minSize.setHeight(qMin(m_baseSize.height(), height()));
     m_minSize.setWidth(qMin(m_baseSize.width(), width()));
     QTextEdit::resizeEvent(e);
+}
+
+bool TextWidget::viewportEvent(QEvent* e)
+{
+    const bool handled = QTextEdit::viewportEvent(e);
+    switch (e->type()) {
+        case QEvent::Enter:
+        case QEvent::MouseMove:
+        case QEvent::MouseButtonPress:
+        case QEvent::MouseButtonRelease:
+        case QEvent::MouseButtonDblClick:
+            // QTextEdit restores its fixed-size cursor after paragraph/list
+            // selection. Preserve the glyph-sized pointer after that logic.
+            viewport()->setCursor(insertionCursor(firstLineTextRect().height(),
+                                                   devicePixelRatioF()));
+            break;
+        default:
+            break;
+    }
+    return handled;
 }
 
 void TextWidget::setFont(const QFont& f)
