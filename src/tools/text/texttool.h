@@ -80,6 +80,7 @@ private:
     QPointer<TextWidget> m_widget;
     QPointer<TextConfig> m_confW;
     QPoint m_currentPos;
+    QPoint m_creationOffset;
 
     QString m_tempString;
 };

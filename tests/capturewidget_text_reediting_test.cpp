@@ -6,6 +6,7 @@
 #include "widgets/panel/utilitypanel.h"
 
 #include <QApplication>
+#include <QCursor>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QScopeGuard>
@@ -17,17 +18,22 @@
 
 namespace {
 
+void mouse(CaptureWidget& widget, QEvent::Type type, const QPoint& pos)
+{
+    QMouseEvent event(type,
+                      QPointF(pos),
+                      QPointF(widget.mapToGlobal(pos)),
+                      type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton,
+                      type == QEvent::MouseButtonRelease ? Qt::NoButton
+                                                        : Qt::LeftButton,
+                      Qt::NoModifier);
+    QApplication::sendEvent(&widget, &event);
+}
+
 void click(CaptureWidget& widget, const QPoint& pos)
 {
     for (auto type : { QEvent::MouseButtonPress, QEvent::MouseButtonRelease }) {
-        QMouseEvent event(type,
-                          QPointF(pos),
-                          QPointF(widget.mapToGlobal(pos)),
-                          Qt::LeftButton,
-                          type == QEvent::MouseButtonPress ? Qt::LeftButton
-                                                          : Qt::NoButton,
-                          Qt::NoModifier);
-        QApplication::sendEvent(&widget, &event);
+        mouse(widget, type, pos);
     }
 }
 
@@ -79,7 +85,16 @@ public:
                 return EXIT_FAILURE;
             }
             widget.setState(textButton);
-            const QPoint firstPos(40, 45);
+            const auto mouseSide = widget.m_selection->getMouseSide(
+              widget.mapFromGlobal(QCursor::pos()));
+            const bool overHandle = mouseSide != SelectionWidget::NO_SIDE &&
+                                    mouseSide != SelectionWidget::CENTER;
+            require(widget.cursor().shape() ==
+                      (!pinEditMode && overHandle
+                         ? widget.m_selection->cursor().shape()
+                         : Qt::IBeamCursor),
+                    "Text tool did not use the correct text or resize cursor");
+            const QPoint firstClick(60, 85);
             const QPoint secondPos(40, 220);
             // The center of this multi-line box is blank. Text must be selected
             // by its input area, including the gaps between lines and characters.
@@ -97,11 +112,20 @@ public:
                                "text click did not reopen the existing input box");
             };
 
-            click(widget, firstPos);
+            mouse(widget, QEvent::MouseButtonPress, firstClick);
             if (!require(editor(), "new text input box was not created")) {
                 return EXIT_FAILURE;
             }
+            const QPoint firstPos = editor()->pos();
+            require(firstPos + QPoint(0, editor()->rect().center().y()) ==
+                      firstClick,
+                    "mouse press did not anchor the input box at its left center");
+            mouse(widget, QEvent::MouseButtonRelease, firstClick);
+            require(editor()->pos() == firstPos,
+                    "mouse release moved the newly anchored input box");
             editor()->setPlainText(original);
+            require(editor()->pos() == firstPos,
+                    "typing multiple lines moved the input box's top-left");
             widget.commitCurrentTool();
             require(widget.m_captureToolObjects.size() == 1 &&
                       widget.m_undoStack.count() == 1,
@@ -169,6 +193,9 @@ public:
             if (!require(editor(), "blank click did not start a second text box")) {
                 return EXIT_FAILURE;
             }
+            require(editor()->pos() +
+                        QPoint(0, editor()->rect().center().y()) == secondPos,
+                    "second text input did not use the same left-center anchor");
             const QString second = QStringLiteral("第二段文字");
             editor()->setPlainText(second);
             if (!open(firstHit, lowercase)) {
@@ -226,6 +253,26 @@ public:
                       widget.m_selection->geometry() == selection &&
                       widget.m_context.origScreenshot.toImage() == background,
                     "text editing changed the pinned image position or background");
+
+            // A new input can also be positioned with a press-and-drag. It
+            // keeps the original click offset instead of jumping on release.
+            widget.setState(textButton);
+            const QPoint dragFrom(330, 140);
+            const QPoint dragTo(370, 175);
+            mouse(widget, QEvent::MouseButtonPress, dragFrom);
+            if (!require(editor(), "text drag did not create an input box")) {
+                return EXIT_FAILURE;
+            }
+            const QPoint clickOffset(0, editor()->rect().center().y());
+            mouse(widget, QEvent::MouseMove, dragTo);
+            require(editor()->pos() + clickOffset == dragTo,
+                    "dragging text did not preserve the left-center anchor");
+            mouse(widget, QEvent::MouseButtonRelease, dragTo);
+            const QPoint dragOrigin = editor()->pos();
+            editor()->setPlainText(QStringLiteral("拖动定位"));
+            widget.commitCurrentTool();
+            require(*widget.m_captureToolObjects.at(1)->pos() == dragOrigin,
+                    "committing dragged text changed its origin");
         }
 
         std::fprintf(stderr,

@@ -2476,6 +2476,8 @@ void CaptureWidget::updateCursor()
         setCursor(m_selection->cursor());
     } else if (m_pinEditMode && !m_activeButton) {
         setCursor(Qt::CrossCursor);
+    } else if (activeButtonToolType() == CaptureTool::TYPE_TEXT) {
+        setCursor(Qt::IBeamCursor);
     } else if (m_activeButton != nullptr &&
                activeButtonToolType() != CaptureTool::TYPE_MOVESELECTION) {
         setCursor(Qt::CrossCursor);

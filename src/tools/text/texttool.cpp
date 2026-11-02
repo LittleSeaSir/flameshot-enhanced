@@ -239,12 +239,17 @@ void TextTool::paintMousePreview(QPainter& painter,
 
 void TextTool::drawEnd(const QPoint& point)
 {
-    m_textArea.moveTo(point);
+    // The mouse marks the left center, not the persisted text origin. Keep
+    // the input's actual top-left when the placement gesture finishes.
+    m_textArea.moveTo(m_widget ? m_widget->pos() : point);
 }
 
 void TextTool::drawMove(const QPoint& point)
 {
-    m_widget->move(point);
+    if (m_widget && !editMode()) {
+        m_widget->move(point - m_creationOffset);
+        m_textArea.moveTo(m_widget->pos());
+    }
 }
 
 void TextTool::drawStart(const CaptureContext& context)
@@ -252,6 +257,12 @@ void TextTool::drawStart(const CaptureContext& context)
     m_color = context.color;
     m_size = context.toolSize;
     emit requestAction(REQ_ADD_CHILD_WIDGET);
+    if (m_widget) {
+        // The child has been shown and its initial height is now known.
+        // Capture the offset once: typing more lines must not recenter it.
+        m_creationOffset = QPoint(0, m_widget->rect().center().y());
+        drawMove(context.mousePos);
+    }
 }
 
 void TextTool::pressed(CaptureContext& context)
