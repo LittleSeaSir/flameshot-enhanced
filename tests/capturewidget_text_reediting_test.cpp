@@ -92,7 +92,7 @@ public:
             require(widget.cursor().shape() ==
                       (!pinEditMode && overHandle
                          ? widget.m_selection->cursor().shape()
-                         : Qt::IBeamCursor),
+                         : Qt::BitmapCursor),
                     "Text tool did not use the correct text or resize cursor");
             const QPoint firstClick(60, 85);
             const QPoint secondPos(40, 220);
@@ -116,16 +116,21 @@ public:
             if (!require(editor(), "new text input box was not created")) {
                 return EXIT_FAILURE;
             }
-            const QPoint firstPos = editor()->pos();
-            require(firstPos + QPoint(0, editor()->rect().center().y()) ==
+            const QPoint initialPos = editor()->pos();
+            const QRect firstCaret = editor()->firstLineTextRect();
+            require(initialPos + QPoint(editor()->firstLineCursorRect().left(),
+                                        firstCaret.center().y()) ==
                       firstClick,
-                    "mouse press did not anchor the input box at its left center");
+                    "mouse press did not anchor the actual first text line");
             mouse(widget, QEvent::MouseButtonRelease, firstClick);
-            require(editor()->pos() == firstPos,
+            require(editor()->pos() == initialPos,
                     "mouse release moved the newly anchored input box");
             editor()->setPlainText(original);
-            require(editor()->pos() == firstPos,
-                    "typing multiple lines moved the input box's top-left");
+            const QPoint firstPos = editor()->pos();
+            const QRect populatedCaret = editor()->firstLineTextRect();
+            require(firstPos + QPoint(editor()->firstLineCursorRect().left(),
+                                     populatedCaret.center().y()) == firstClick,
+                    "typing Chinese changed the first line's insertion anchor");
             widget.commitCurrentTool();
             require(widget.m_captureToolObjects.size() == 1 &&
                       widget.m_undoStack.count() == 1,
@@ -193,9 +198,11 @@ public:
             if (!require(editor(), "blank click did not start a second text box")) {
                 return EXIT_FAILURE;
             }
+            const QRect secondCaret = editor()->firstLineTextRect();
             require(editor()->pos() +
-                        QPoint(0, editor()->rect().center().y()) == secondPos,
-                    "second text input did not use the same left-center anchor");
+                        QPoint(editor()->firstLineCursorRect().left(),
+                               secondCaret.center().y()) == secondPos,
+                    "second text input did not anchor its actual first line");
             const QString second = QStringLiteral("第二段文字");
             editor()->setPlainText(second);
             if (!open(firstHit, lowercase)) {
@@ -263,13 +270,15 @@ public:
             if (!require(editor(), "text drag did not create an input box")) {
                 return EXIT_FAILURE;
             }
-            const QPoint clickOffset(0, editor()->rect().center().y());
+            const QRect dragCaret = editor()->firstLineTextRect();
+            const QPoint clickOffset(editor()->firstLineCursorRect().left(),
+                                     dragCaret.center().y());
             mouse(widget, QEvent::MouseMove, dragTo);
             require(editor()->pos() + clickOffset == dragTo,
                     "dragging text did not preserve the left-center anchor");
             mouse(widget, QEvent::MouseButtonRelease, dragTo);
-            const QPoint dragOrigin = editor()->pos();
             editor()->setPlainText(QStringLiteral("拖动定位"));
+            const QPoint dragOrigin = editor()->pos();
             widget.commitCurrentTool();
             require(*widget.m_captureToolObjects.at(1)->pos() == dragOrigin,
                     "committing dragged text changed its origin");

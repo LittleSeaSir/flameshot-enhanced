@@ -108,7 +108,22 @@ QWidget* TextTool::widget()
     m_widget->setText(m_text);
     m_widget->selectAll();
     connect(m_widget, &TextWidget::textUpdated, this, &TextTool::updateText);
+    connect(m_widget, &TextWidget::textLayoutChanged, this, [this]() {
+        if (m_creationAnchorValid && !editMode()) {
+            drawMove(m_creationAnchor);
+        }
+        emit cursorChanged();
+    });
     return m_widget;
+}
+
+QCursor TextTool::insertionCursor(qreal devicePixelRatio) const
+{
+    QFont font = m_font;
+    font.setPointSize(m_size + BASE_POINT_SIZE);
+    const int height = m_widget ? m_widget->firstLineTextRect().height()
+                                : TextWidget::fontTextHeight(font);
+    return TextWidget::insertionCursor(height, devicePixelRatio);
 }
 
 void TextTool::closeEditor()
@@ -247,7 +262,12 @@ void TextTool::drawEnd(const QPoint& point)
 void TextTool::drawMove(const QPoint& point)
 {
     if (m_widget && !editMode()) {
-        m_widget->move(point - m_creationOffset);
+        m_creationAnchor = point;
+        m_creationAnchorValid = true;
+        const QRect ink = m_widget->firstLineTextRect();
+        const QPoint offset(m_widget->firstLineCursorRect().left(),
+                            ink.center().y());
+        m_widget->move(point - offset);
         m_textArea.moveTo(m_widget->pos());
     }
 }
@@ -258,9 +278,8 @@ void TextTool::drawStart(const CaptureContext& context)
     m_size = context.toolSize;
     emit requestAction(REQ_ADD_CHILD_WIDGET);
     if (m_widget) {
-        // The child has been shown and its initial height is now known.
-        // Capture the offset once: typing more lines must not recenter it.
-        m_creationOffset = QPoint(0, m_widget->rect().center().y());
+        // Align the insertion column to the visible first-line glyphs, not
+        // the editor's padding or the font's extra ascent/descent whitespace.
         drawMove(context.mousePos);
     }
 }
@@ -285,6 +304,7 @@ void TextTool::onSizeChanged(int size)
     if (m_widget != nullptr) {
         m_widget->setFont(m_font);
     }
+    emit cursorChanged();
 }
 
 void TextTool::updateText(const QString& newText)
@@ -301,6 +321,7 @@ void TextTool::updateFamily(const QString& text)
     if (m_widget != nullptr) {
         m_widget->setFont(m_font);
     }
+    emit cursorChanged();
 }
 
 void TextTool::updateFontUnderline(const bool underlined)
@@ -325,6 +346,7 @@ void TextTool::updateFontWeight(const QFont::Weight weight)
     if (m_widget != nullptr) {
         m_widget->setFont(m_font);
     }
+    emit cursorChanged();
 }
 
 void TextTool::updateFontItalic(const bool italic)
@@ -333,6 +355,7 @@ void TextTool::updateFontItalic(const bool italic)
     if (m_widget != nullptr) {
         m_widget->setFont(m_font);
     }
+    emit cursorChanged();
 }
 
 void TextTool::move(const QPoint& pos)

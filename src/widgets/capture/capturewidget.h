@@ -53,6 +53,7 @@ class CaptureWidget : public QWidget
     friend class CaptureWidgetShapeReselectionTest;
     friend class CaptureWidgetWindowSnapTest;
     friend class CaptureWidgetTextReeditingTest;
+    friend class CaptureWidgetTextCursorTest;
 #endif
 
 public:

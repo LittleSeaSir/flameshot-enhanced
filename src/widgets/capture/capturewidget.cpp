@@ -18,6 +18,7 @@
 #include "tools/abstracttwopointtool.h"
 #include "tools/eraser/erasertool.h"
 #include "tools/pin/pineditorlayout.h"
+#include "tools/text/texttool.h"
 #include "utils/abstractlogger.h"
 #include "utils/screengrabber.h"
 #include "utils/screenshotsaver.h"
@@ -619,6 +620,10 @@ void CaptureWidget::initButtons()
         }
 
         m_tools[t] = b->tool();
+        if (auto* text = qobject_cast<TextTool*>(b->tool())) {
+            connect(text, &TextTool::cursorChanged,
+                    this, &CaptureWidget::updateCursor);
+        }
 
         connect(b->tool(),
                 &CaptureTool::requestAction,
@@ -1131,6 +1136,10 @@ bool CaptureWidget::startDrawObjectTool(const QPoint& pos)
             return false;
         }
         m_activeTool = m_activeButton->tool()->copy(this);
+        if (auto* text = qobject_cast<TextTool*>(m_activeTool.data())) {
+            connect(text, &TextTool::cursorChanged,
+                    this, &CaptureWidget::updateCursor);
+        }
 
         connect(this,
                 &CaptureWidget::colorChanged,
@@ -1302,6 +1311,8 @@ bool CaptureWidget::beginTextEditing(int layer)
     m_panel->setActiveLayer(layer);
     m_captureToolObjectsBackup = m_captureToolObjects;
     m_activeTool = text;
+    connect(qobject_cast<TextTool*>(text.data()), &TextTool::cursorChanged,
+            this, &CaptureWidget::updateCursor, Qt::UniqueConnection);
     m_activeTool->setEditMode(true);
     m_mouseIsClicked = false;
     m_context.mousePos = *m_activeTool->pos();
@@ -2229,10 +2240,15 @@ void CaptureWidget::onToolSizeChanged(int t)
     if (tool && tool->showMousePreview()) {
         setCursor(Qt::BlankCursor);
         tool->onSizeChanged(t);
+    } else if (tool && tool->type() == CaptureTool::TYPE_TEXT) {
+        tool->onSizeChanged(t);
     }
 
     // update tool size of object being drawn
     if (m_activeTool != nullptr) {
+        if (m_activeTool->type() == CaptureTool::TYPE_TEXT) {
+            m_activeTool->onSizeChanged(t);
+        }
         updateTool(m_activeTool);
     }
 
@@ -2477,7 +2493,11 @@ void CaptureWidget::updateCursor()
     } else if (m_pinEditMode && !m_activeButton) {
         setCursor(Qt::CrossCursor);
     } else if (activeButtonToolType() == CaptureTool::TYPE_TEXT) {
-        setCursor(Qt::IBeamCursor);
+        auto* text = qobject_cast<TextTool*>(m_activeTool.data());
+        if (!text) {
+            text = qobject_cast<TextTool*>(activeButtonTool());
+        }
+        setCursor(text->insertionCursor(devicePixelRatioF()));
     } else if (m_activeButton != nullptr &&
                activeButtonToolType() != CaptureTool::TYPE_MOVESELECTION) {
         setCursor(Qt::CrossCursor);

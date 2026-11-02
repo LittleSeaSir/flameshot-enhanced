@@ -8,6 +8,7 @@
 
 #include <QPoint>
 #include <QPointer>
+#include <QCursor>
 
 class TextWidget;
 class TextConfig;
@@ -34,6 +35,7 @@ public:
     QWidget* widget() override;
     QWidget* configurationWidget() override;
     CaptureTool* copy(QObject* parent = nullptr) override;
+    QCursor insertionCursor(qreal devicePixelRatio) const;
 
     void process(QPainter& painter, const QPixmap& pixmap) override;
     void paintMousePreview(QPainter& painter,
@@ -44,6 +46,9 @@ public:
 
     void setEditMode(bool editMode) override;
     bool isChanged() override;
+
+signals:
+    void cursorChanged();
 
 protected:
     void copyParams(const TextTool* from, TextTool* to);
@@ -80,7 +85,8 @@ private:
     QPointer<TextWidget> m_widget;
     QPointer<TextConfig> m_confW;
     QPoint m_currentPos;
-    QPoint m_creationOffset;
+    QPoint m_creationAnchor;
+    bool m_creationAnchorValid{ false };
 
     QString m_tempString;
 };
