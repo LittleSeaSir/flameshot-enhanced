@@ -23,7 +23,6 @@ public:
     QPixmap grabFullDesktop(bool& ok);
     QRect screenGeometry(QScreen* screen);
     QPixmap grabScreen(QScreen* screenNumber, bool& ok);
-    void freeDesktopPortal(bool& ok, QPixmap& res);
     QRect desktopGeometry();
     QRect logicalDesktopGeometry();
     int getSelectedMonitor() const { return m_selectedMonitor; }
@@ -34,6 +33,7 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
+    void grabViaDesktopService(bool& ok, QPixmap& res);
     void adjustDevicePixelRatio(QPixmap& pixmap);
     QWidget* createMonitorPreviews(const QPixmap& fullScreenshot);
     QPixmap cropToMonitor(const QPixmap& fullScreenshot, int monitorIndex);

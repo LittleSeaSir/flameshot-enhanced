@@ -36,6 +36,140 @@
 #include <QUuid>
 #endif
 
+#ifdef Q_OS_LINUX
+#include <QDBusUnixFileDescriptor>
+#include <QDeadlineTimer>
+#include <QProcessEnvironment>
+#include <QStandardPaths>
+#include <QTemporaryDir>
+#include <cerrno>
+#include <fcntl.h>
+#include <poll.h>
+#include <unistd.h>
+
+namespace {
+
+QPixmap grabKWinDesktop()
+{
+    constexpr int timeoutMs = 5000;
+    constexpr qint64 maxImageBytes = 1024LL * 1024 * 1024;
+    int pipeFds[2];
+    if (::pipe2(pipeFds, O_CLOEXEC) != 0) {
+        return {};
+    }
+
+    QDeadlineTimer deadline(timeoutMs);
+    QDBusUnixFileDescriptor reader;
+    reader.giveFileDescriptor(pipeFds[0]);
+    QDBusReply<QVariantMap> reply;
+    {
+        QDBusUnixFileDescriptor writer;
+        writer.giveFileDescriptor(pipeFds[1]);
+        auto message = QDBusMessage::createMethodCall(
+          QStringLiteral("org.kde.KWin.ScreenShot2"),
+          QStringLiteral("/org/kde/KWin/ScreenShot2"),
+          QStringLiteral("org.kde.KWin.ScreenShot2"),
+          QStringLiteral("CaptureWorkspace"));
+        const QVariantMap options{
+            { QStringLiteral("include-cursor"), false },
+            { QStringLiteral("native-resolution"), true },
+        };
+        message << options << QVariant::fromValue(writer);
+        reply = QDBusConnection::sessionBus().call(message, QDBus::Block, timeoutMs);
+    }
+    if (!reply.isValid()) {
+#ifdef FLAMESHOT_DEBUG_CAPTURE
+        qDebug() << "KWin screenshot unavailable:" << reply.error();
+#endif
+        return {};
+    }
+
+    const auto metadata = reply.value();
+    const int width = metadata.value(QStringLiteral("width")).toInt();
+    const int height = metadata.value(QStringLiteral("height")).toInt();
+    const int format = metadata.value(QStringLiteral("format")).toInt();
+    if (width <= 0 || height <= 0 || format <= QImage::Format_Invalid ||
+        format >= QImage::NImageFormats) {
+        return {};
+    }
+
+    const auto imageFormat = static_cast<QImage::Format>(format);
+    const qint64 depth = QImage::toPixelFormat(imageFormat).bitsPerPixel();
+    const qint64 stride = ((width * depth + 31) / 32) * 4;
+    if (stride <= 0 || stride > maxImageBytes / height) {
+        return {};
+    }
+    QImage image(width, height, imageFormat);
+    const auto reportedStride = metadata.value(QStringLiteral("stride"));
+    if (image.isNull() || (reportedStride.isValid() &&
+                           reportedStride.toLongLong() != image.bytesPerLine())) {
+        return {};
+    }
+
+    // KWin replies with metadata before writing the raw image to the pipe.
+    auto* destination = image.bits();
+    auto remaining = image.sizeInBytes();
+    pollfd pipe = { reader.fileDescriptor(), POLLIN, 0 };
+    while (remaining > 0 && !deadline.hasExpired()) {
+        const int ready = ::poll(&pipe, 1, deadline.remainingTime());
+        if (ready < 0 && errno == EINTR) {
+            continue;
+        }
+        if (ready <= 0 || !(pipe.revents & POLLIN)) {
+            return {};
+        }
+        const auto count = ::read(pipe.fd, destination, remaining);
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
+        if (count <= 0) {
+            return {};
+        }
+        destination += count;
+        remaining -= count;
+    }
+    return remaining == 0 ? QPixmap::fromImage(image) : QPixmap();
+}
+
+QPixmap grabWithSpectacle()
+{
+    const auto program = QStandardPaths::findExecutable(QStringLiteral("spectacle"));
+    if (program.isEmpty()) {
+        return {};
+    }
+
+    QTemporaryDir scratch;
+    if (!scratch.isValid()) {
+        return {};
+    }
+    const auto filename = scratch.filePath(QStringLiteral("capture.png"));
+    QProcess process;
+    // Keep the background capture's save settings separate from the user's.
+    auto environment = QProcessEnvironment::systemEnvironment();
+    environment.insert(QStringLiteral("XDG_CONFIG_HOME"), scratch.path());
+    process.setProcessEnvironment(environment);
+    // Background mode includes the pointer only when --pointer is passed.
+    process.start(program,
+                  { QStringLiteral("--background"),
+                    QStringLiteral("--fullscreen"),
+                    QStringLiteral("--nonotify"),
+                    QStringLiteral("--new-instance"),
+                    QStringLiteral("--output"),
+                    filename });
+    if (!process.waitForFinished(15000)) {
+        process.kill();
+        process.waitForFinished();
+        return {};
+    }
+    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
+        return {};
+    }
+    return QPixmap(filename);
+}
+
+} // namespace
+#endif
+
 bool ScreenGrabber::m_monitorSelectionActive = false;
 
 ScreenGrabber::ScreenGrabber(QObject* parent)
@@ -50,11 +184,25 @@ ScreenGrabber::ScreenGrabber(QObject* parent)
     QImageReader::setAllocationLimit(1024);
 }
 
-void ScreenGrabber::freeDesktopPortal(bool& ok, QPixmap& res)
+void ScreenGrabber::grabViaDesktopService(bool& ok, QPixmap& res)
 {
 
 #if !(defined(Q_OS_MACOS) || defined(Q_OS_WIN))
     ok = true;
+#ifdef Q_OS_LINUX
+    // The Screenshot portal has no cursor option, and KDE's backend can
+    // include the pointer even for a non-interactive request.
+    if (m_info.windowManager() == DesktopInfo::KDE) {
+        res = grabKWinDesktop();
+        if (res.isNull()) {
+            // KWin may only authorize an installed, trusted executable.
+            res = grabWithSpectacle();
+        }
+        if (!res.isNull()) {
+            return;
+        }
+    }
+#endif
     auto* connectionInterface = QDBusConnection::sessionBus().interface();
     auto service = QStringLiteral("org.freedesktop.portal.Desktop");
 
@@ -278,7 +426,7 @@ QPixmap ScreenGrabber::grabEntireDesktop(bool& ok, int preSelectedMonitor)
             return QPixmap();
         }
     } else {
-        freeDesktopPortal(ok, screenshot);
+        grabViaDesktopService(ok, screenshot);
         if (!ok) {
             AbstractLogger::error() << tr("Unable to capture screen");
             return QPixmap();
@@ -339,7 +487,7 @@ QPixmap ScreenGrabber::grabFullDesktop(bool& ok)
             AbstractLogger::error() << tr("Unable to capture screen");
         }
     } else {
-        freeDesktopPortal(ok, screenshot);
+        grabViaDesktopService(ok, screenshot);
         if (!ok) {
             AbstractLogger::error() << tr("Unable to capture screen");
         }
