@@ -186,16 +186,23 @@ PlasmaShellApi& plasmaShellApi()
     }
     resolved = true;
 
-    // Plasma 6 currently exposes this helper from libPlasmaQuick.so.7.
-    // Keep it runtime-only so non-Plasma desktops need no KDE dependency.
-    library.setFileNameAndVersion(QStringLiteral("PlasmaQuick"), 7);
-    if (!library.load()) {
-        return api;
+    // Newer Plasma releases use ABI 8. Older Plasma 6 installations use ABI 7.
+    // Keep the dependency optional and verify both entry points before use.
+    for (const int version : { 8, 7 }) {
+        library.setFileNameAndVersion(QStringLiteral("PlasmaQuick"), version);
+        if (!library.load()) {
+            continue;
+        }
+        api.getWindow = reinterpret_cast<GetPlasmaShellWindow>(
+          library.resolve("_ZN29PlasmaShellWaylandIntegration3getEP7QWindow"));
+        api.setPosition = reinterpret_cast<SetPlasmaShellPosition>(library.resolve(
+          "_ZN29PlasmaShellWaylandIntegration11setPositionERK6QPoint"));
+        if (api.available()) {
+            break;
+        }
+        api = {};
+        library.unload();
     }
-    api.getWindow = reinterpret_cast<GetPlasmaShellWindow>(
-      library.resolve("_ZN29PlasmaShellWaylandIntegration3getEP7QWindow"));
-    api.setPosition = reinterpret_cast<SetPlasmaShellPosition>(library.resolve(
-      "_ZN29PlasmaShellWaylandIntegration11setPositionERK6QPoint"));
 #endif
     return api;
 }
