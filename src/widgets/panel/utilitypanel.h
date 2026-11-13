@@ -28,6 +28,7 @@ public:
     void pushWidget(QWidget* widget);
     void fillCaptureTools(
       const QList<QPointer<CaptureTool>>& captureToolObjectsHistory);
+    void appendCaptureTool(CaptureTool& tool);
     void setActiveLayer(int index);
     int activeLayerIndex();
     bool isVisible() const;

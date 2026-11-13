@@ -207,13 +207,17 @@ void UtilityPanel::fillCaptureTools(
     m_captureTools->addItem(tr("<Empty>"));
 
     for (auto toolItem : captureToolObjects) {
-        auto* item = new QListWidgetItem(
-          toolItem->icon(QColor(Qt::white), false), toolItem->info());
-        m_captureTools->addItem(item);
+        appendCaptureTool(*toolItem);
     }
     if (currentSelection >= 0 && currentSelection < m_captureTools->count()) {
         m_captureTools->setCurrentRow(currentSelection);
     }
+}
+
+void UtilityPanel::appendCaptureTool(CaptureTool& tool)
+{
+    m_captureTools->addItem(
+      new QListWidgetItem(tool.icon(Qt::white, false), tool.info()));
 }
 
 void UtilityPanel::setActiveLayer(int index)

@@ -767,6 +767,11 @@ bool CaptureWidget::commitCurrentTool()
             updateLayersPanel();
             return true;
         }
+        if (m_activeTool->type() == CaptureTool::TYPE_PENCIL &&
+            m_activeTool->isValid()) {
+            pushToolToStack();
+            return true;
+        }
         processPixmapWithTool(&m_context.screenshot, m_activeTool);
         if (m_activeTool->isValid() && !m_activeTool->editMode() &&
             m_toolWidget) {
@@ -1157,6 +1162,9 @@ bool CaptureWidget::startDrawObjectTool(const QPoint& pos)
 
         m_context.mousePos = m_displayGrid ? snapToGrid(pos) : pos;
         m_activeTool->drawStart(m_context);
+        if (activeButtonToolType() == CaptureTool::TYPE_PENCIL) {
+            updateTool(m_activeTool);
+        }
 
         return true;
     }
@@ -1553,6 +1561,12 @@ void CaptureWidget::mousePressEvent(QMouseEvent* e)
 
 void CaptureWidget::mouseDoubleClickEvent(QMouseEvent* event)
 {
+    if (event->button() == Qt::LeftButton &&
+        activeButtonToolType() == CaptureTool::TYPE_PENCIL) {
+        mousePressEvent(event);
+        return;
+    }
+
     int activeLayerIndex = m_panel->activeLayerIndex();
     if (activeLayerIndex != -1) {
         // Start object editing
@@ -1741,7 +1755,15 @@ void CaptureWidget::mouseReleaseEvent(QMouseEvent* e)
                 return;
             }
             // end draw/edit
-            m_activeTool->drawEnd(m_context.mousePos);
+            if (m_activeTool->type() == CaptureTool::TYPE_PENCIL) {
+                m_context.mousePos = e->pos();
+                m_activeTool->drawEnd(
+                  m_displayGrid && !m_adjustmentButtonPressed && !m_shiftPressed
+                    ? snapToGrid(e->pos())
+                    : e->pos());
+            } else {
+                m_activeTool->drawEnd(m_context.mousePos);
+            }
             if (m_activeTool->isValid()) {
                 pushToolToStack();
             } else if (!m_toolWidget) {
@@ -2289,6 +2311,9 @@ void CaptureWidget::setDrawColor(const QColor& c)
         emit colorChanged(c);
         // Update mouse preview
         updateTool(activeButtonTool());
+        if (activeButtonToolType() == CaptureTool::TYPE_PENCIL) {
+            updateCursor();
+        }
 
         // change color for the active tool
         auto toolItem = activeToolObject();
@@ -2506,8 +2531,11 @@ void CaptureWidget::updateCursor()
         }
         setCursor(text->insertionCursor(devicePixelRatioF()));
     } else if (activeButtonToolType() == CaptureTool::TYPE_PENCIL) {
-        setCursor(PencilTool::drawingCursor(m_context.toolSize,
-                                            devicePixelRatioF()));
+        const QCursor pencilCursor = PencilTool::drawingCursor(
+          m_context.toolSize, devicePixelRatioF(), m_context.color);
+        if (cursor() != pencilCursor) {
+            setCursor(pencilCursor);
+        }
     } else if (m_activeButton != nullptr &&
                activeButtonToolType() != CaptureTool::TYPE_MOVESELECTION) {
         setCursor(Qt::CrossCursor);
@@ -2549,28 +2577,30 @@ void CaptureWidget::updateSelectionState()
 
 void CaptureWidget::updateTool(CaptureTool* tool)
 {
-    if (!tool || !tool->showMousePreview()) {
+    if (!tool) {
         return;
     }
 
-    static QRect oldPreviewRect, oldToolObjectRect;
+    QRect previewRect;
+    QRect toolObjectRect;
+    if (tool->showMousePreview()) {
+        previewRect = tool->mousePreviewRect(m_context);
+        previewRect += QMargins(previewRect.width(),
+                                previewRect.height(),
+                                previewRect.width(),
+                                previewRect.height());
+        toolObjectRect = paddedUpdateRect(tool->boundingRect());
+    } else if (tool == m_activeTool && tool->type() == CaptureTool::TYPE_PENCIL) {
+        toolObjectRect = paddedUpdateRect(tool->boundingRect());
+    }
 
-    QRect previewRect(tool->mousePreviewRect(m_context));
-    previewRect += QMargins(previewRect.width(),
-                            previewRect.height(),
-                            previewRect.width(),
-                            previewRect.height());
-
-    QRect toolObjectRect = paddedUpdateRect(tool->boundingRect());
-
-    // old rects are united with current rects to handle sudden mouse movement
-    update(previewRect);
-    update(toolObjectRect);
-    update(oldPreviewRect);
-    update(oldToolObjectRect);
-
-    oldPreviewRect = previewRect;
-    oldToolObjectRect = toolObjectRect;
+    const QRegion dirtyRegion = QRegion(m_previousPreviewRect) | previewRect |
+                                m_previousToolRect | toolObjectRect;
+    if (!dirtyRegion.isEmpty()) {
+        update(dirtyRegion);
+    }
+    m_previousPreviewRect = previewRect;
+    m_previousToolRect = toolObjectRect;
 }
 
 void CaptureWidget::updateLayersPanel()
@@ -2590,6 +2620,15 @@ void CaptureWidget::pushToolToStack()
                    &CaptureWidget::toolSizeChanged,
                    m_activeTool,
                    &CaptureTool::onSizeChanged);
+        if (m_activeTool->type() == CaptureTool::TYPE_PENCIL) {
+            m_undoStack.push(new AppendPencilCommand(this, m_activeTool));
+            releaseActiveTool();
+            if (!m_previousToolRect.isEmpty()) {
+                update(m_previousToolRect);
+            }
+            m_previousToolRect = QRect();
+            return;
+        }
         if (m_panel->toolWidget()) {
             disconnect(m_panel->toolWidget(), nullptr, m_activeTool, nullptr);
         }
@@ -2610,6 +2649,44 @@ void CaptureWidget::pushToolToStack()
     }
 }
 
+void CaptureWidget::appendPencil(CaptureTool* pencil)
+{
+    m_captureToolObjects.append(pencil, this);
+    m_panel->appendCaptureTool(*pencil);
+    // A selected object's outline is baked into the preview. Rebuild so the
+    // outline stays above the ink when a pencil stroke is redone.
+    if (activeToolObject()) {
+        drawToolsData();
+        return;
+    }
+
+    const QRect area = paddedUpdateRect(pencil->boundingRect());
+    if (m_annotationLayer.isNull()) {
+        processPixmapWithTool(&m_context.screenshot, pencil);
+    } else {
+        processPixmapWithTool(&m_annotationLayer, pencil);
+        QPainter painter(&m_context.screenshot);
+        painter.setClipRect(area);
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        painter.drawPixmap(0, 0, m_context.origScreenshot);
+        painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+        painter.drawPixmap(0, 0, m_annotationLayer);
+    }
+    update(area);
+}
+
+void CaptureWidget::removeLastPencil()
+{
+    const int index = m_captureToolObjects.size() - 1;
+    auto pencil = m_captureToolObjects.at(index);
+    Q_ASSERT(pencil && pencil->type() == CaptureTool::TYPE_PENCIL);
+    update(paddedUpdateRect(pencil->boundingRect()));
+    m_captureToolObjects.removeAt(index);
+    delete pencil.data();
+    drawToolsData();
+    updateLayersPanel();
+}
+
 void CaptureWidget::drawToolsData(bool drawSelection)
 {
     // TODO refactor this for performance. The objects should not all be updated
@@ -2626,6 +2703,7 @@ void CaptureWidget::drawToolsData(bool drawSelection)
         }
     }
 
+    m_annotationLayer = QPixmap();
     if (hasEraser) {
         // Multi-layer rendering: process tools in order so erasers
         // only affect tools that were drawn BEFORE them.
@@ -2672,6 +2750,7 @@ void CaptureWidget::drawToolsData(bool drawSelection)
         QPainter painter(&pixmapItem);
         painter.setRenderHint(QPainter::Antialiasing);
         painter.drawPixmap(0, 0, annotLayer);
+        m_annotationLayer = annotLayer;
     } else {
         // Fast path: no eraser, render directly as before
         for (const auto& toolItem :
@@ -2821,25 +2900,18 @@ void CaptureWidget::undo()
         m_panel->setActiveLayer(-1);
     }
 
-    // drawToolsData is called twice to update both previous and new regions
-    // FIXME this is a temporary workaround
-    drawToolsData();
+    // The command replaces the rendered image. Refresh the old region too
+    // so removed or moved annotations do not leave pixels behind.
     m_undoStack.undo();
-    drawToolsData();
-    updateLayersPanel();
+    update();
 
     restoreCircleCountState();
 }
 
 void CaptureWidget::redo()
 {
-    // drawToolsData is called twice to update both previous and new regions
-    // FIXME this is a temporary workaround
-    drawToolsData();
     m_undoStack.redo();
-    drawToolsData();
     update();
-    updateLayersPanel();
 
     restoreCircleCountState();
 }

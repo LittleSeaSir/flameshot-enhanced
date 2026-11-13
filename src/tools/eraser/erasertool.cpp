@@ -114,9 +114,7 @@ void EraserTool::drawStart(const CaptureContext& context)
     m_color = context.color;
     m_penStyle = context.penStyle;
     onSizeChanged(context.toolSize);
-    m_points.append(context.mousePos);
-    m_pathArea.setTopLeft(context.mousePos);
-    m_pathArea.setBottomRight(context.mousePos);
+    addPoint(context.mousePos);
 }
 
 void EraserTool::pressed(CaptureContext& context)

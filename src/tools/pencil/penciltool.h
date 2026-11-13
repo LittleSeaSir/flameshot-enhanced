@@ -16,10 +16,14 @@ public:
     QIcon icon(const QColor& background, bool inEditor) const override;
     QString name() const override;
     QString description() const override;
-    static QCursor drawingCursor(int strokeWidth, qreal devicePixelRatio);
+    static QCursor drawingCursor(int strokeWidth,
+                                 qreal devicePixelRatio,
+                                 const QColor& color);
 
     CaptureTool* copy(QObject* parent = nullptr) override;
 
+    bool isValid() const override;
+    bool showMousePreview() const override;
     void process(QPainter& painter, const QPixmap& pixmap) override;
     void paintMousePreview(QPainter& painter,
                            const CaptureContext& context) override;

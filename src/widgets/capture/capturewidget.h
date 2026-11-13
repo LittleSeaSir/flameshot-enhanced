@@ -49,6 +49,7 @@ class CaptureWidget : public QWidget
 {
     Q_OBJECT
 
+    friend class AppendPencilCommand;
 #ifdef FLAMESHOT_BUILD_TESTS
     friend class CaptureWidgetShapeReselectionTest;
     friend class CaptureWidgetWindowSnapTest;
@@ -163,6 +164,8 @@ private:
     void updateLayersPanel();
     bool promptQuit();
     void pushToolToStack();
+    void appendPencil(CaptureTool* pencil);
+    void removeLastPencil();
     void makeChild(QWidget* w);
     void restoreCircleCountState();
 
@@ -243,6 +246,9 @@ private:
     QMap<CaptureTool::Type, CaptureTool*> m_tools;
     CaptureToolObjects m_captureToolObjects;
     CaptureToolObjects m_captureToolObjectsBackup;
+    QPixmap m_annotationLayer;
+    QRect m_previousPreviewRect;
+    QRect m_previousToolRect;
 
     QPoint m_mousePressedPos;
     QPoint m_activeToolOffsetToMouseOnStart;

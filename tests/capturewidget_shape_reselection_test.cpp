@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: 2026 Flameshot Contributors
 
 #include "tools/abstracttwopointtool.h"
+#include "tools/eraser/erasertool.h"
 #include "widgets/capture/capturetoolbutton.h"
 #include "widgets/capture/capturewidget.h"
 #include "widgets/panel/utilitypanel.h"
 
 #include <QApplication>
 #include <QMouseEvent>
+#include <QRadioButton>
 #include <QStandardPaths>
 
 #include <cstdio>
@@ -191,6 +193,86 @@ public:
         require(newlyDrawn && newlyDrawn->points().first == blankFrom &&
                   newlyDrawn->points().second == blankTo,
                 "new rectangle geometry does not match the blank drag");
+
+        auto selectTool = [&widget](CaptureTool::Type type) {
+            for (auto* button : widget.findChildren<CaptureToolButton*>()) {
+                if (button->tool()->type() == type) {
+                    widget.setState(button);
+                    return button->tool();
+                }
+            }
+            return static_cast<CaptureTool*>(nullptr);
+        };
+        require(selectTool(CaptureTool::TYPE_PENCIL), "pencil button missing");
+        widget.setDrawColor(Qt::red);
+        widget.onToolSizeChanged(6);
+        const auto beforePencil = widget.m_context.screenshot.toImage();
+        const QPoint strokeStart(55, 170);
+        const QPoint strokeEnd(245, 170);
+        press(widget, strokeStart);
+        release(widget, strokeEnd);
+        const auto afterPencil = widget.m_context.screenshot.toImage();
+        require(afterPencil.pixelColor(strokeEnd) == Qt::red,
+                "a short gesture without a move event lost its release point");
+
+        const QPoint dot(140, 200);
+        sendMouseEvent(widget,
+                       QEvent::MouseButtonDblClick,
+                       dot,
+                       Qt::LeftButton,
+                       Qt::LeftButton);
+        release(widget, dot);
+        require(widget.m_context.screenshot.toImage().pixelColor(dot) == Qt::red,
+                "a fast second click did not draw a dot");
+        widget.undo();
+        require(widget.m_context.screenshot.toImage() == afterPencil,
+                "undo of the click changed other strokes");
+
+        auto* eraser = qobject_cast<EraserTool*>(
+          selectTool(CaptureTool::TYPE_ERASER));
+        require(eraser, "eraser button missing");
+        if (!eraser) {
+            return EXIT_FAILURE;
+        }
+        for (auto* radio :
+             widget.m_panel->toolWidget()->findChildren<QRadioButton*>()) {
+            if (radio->text().contains("Pixel")) {
+                radio->click();
+                break;
+            }
+        }
+        require(eraser->mode() == EraserTool::Mode::Pixel,
+                "could not select the pixel eraser");
+        const QPoint erased(140, strokeStart.y());
+        press(widget, erased);
+        release(widget, erased);
+        const auto afterEraser = widget.m_context.screenshot.toImage();
+        require(afterEraser.pixelColor(erased) == beforePencil.pixelColor(erased),
+                "pixel eraser did not clear the old pencil stroke");
+
+        selectTool(CaptureTool::TYPE_PENCIL);
+        press(widget, erased);
+        release(widget, erased);
+        const auto afterNewPencil = widget.m_context.screenshot.toImage();
+        require(afterNewPencil.pixelColor(erased) == Qt::red,
+                "the old eraser affected a pencil stroke added later");
+        widget.drawToolsData();
+        require(widget.m_context.screenshot.toImage() == afterNewPencil,
+                "appending to the eraser layer differs from a full redraw");
+        widget.undo();
+        require(widget.m_context.screenshot.toImage() == afterEraser,
+                "undo of the appended stroke did not restore the eraser hole");
+        widget.undo();
+        require(widget.m_context.screenshot.toImage() == afterPencil,
+                "undo of the pixel eraser did not restore the original ink");
+        widget.undo();
+        require(widget.m_context.screenshot.toImage() == beforePencil,
+                "undo of the pencil stroke changed the earlier shapes");
+        widget.redo();
+        widget.redo();
+        widget.redo();
+        require(widget.m_context.screenshot.toImage() == afterNewPencil,
+                "redo changed the final image");
 
         if (passed) {
             qInfo() << "CaptureWidget fixed-shape reselection test passed";

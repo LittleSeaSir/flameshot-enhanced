@@ -19,10 +19,9 @@ void AbstractPathTool::copyParams(const AbstractPathTool* from,
     to->m_padding = from->m_padding;
     to->m_pos = from->m_pos;
 
-    to->m_points.clear();
-    for (auto point : from->m_points) {
-        to->m_points.append(point);
-    }
+    to->m_points = from->m_points;
+    to->m_pathArea = from->m_pathArea;
+    to->m_penStyle = from->m_penStyle;
 }
 
 bool AbstractPathTool::isValid() const
@@ -57,32 +56,9 @@ QRect AbstractPathTool::boundingRect() const
     if (m_points.isEmpty()) {
         return {};
     }
-    int min_x = m_points.at(0).x();
-    int min_y = m_points.at(0).y();
-    int max_x = m_points.at(0).x();
-    int max_y = m_points.at(0).y();
-    for (auto point : m_points) {
-        if (point.x() < min_x) {
-            min_x = point.x();
-        }
-        if (point.y() < min_y) {
-            min_y = point.y();
-        }
-        if (point.x() > max_x) {
-            max_x = point.x();
-        }
-        if (point.y() > max_y) {
-            max_y = point.y();
-        }
-    }
-
-    int offset =
+    const int offset =
       m_thickness <= 1 ? 1 : static_cast<int>(round(m_thickness * 0.7 + 0.5));
-    return QRect(min_x - offset,
-                 min_y - offset,
-                 std::abs(min_x - max_x) + offset * 2,
-                 std::abs(min_y - max_y) + offset * 2)
-      .normalized();
+    return m_pathArea.adjusted(-offset, -offset, offset, offset);
 }
 
 void AbstractPathTool::drawEnd(const QPoint& p)
@@ -102,7 +78,7 @@ void AbstractPathTool::drawMoveWithAdjustment(const QPoint& p)
     if (!m_points.isEmpty()) {
         QPoint start = m_points.first(); // save actual start before clearing
         m_points.clear();
-        m_points.append(start);
+        addPoint(start);
         addPoint(p);
     }
 }
@@ -125,16 +101,8 @@ void AbstractPathTool::addPoint(const QPoint& point)
     if (!m_points.isEmpty() && m_points.last() == point) {
         return;
     }
-    if (m_pathArea.left() > point.x()) {
-        m_pathArea.setLeft(point.x());
-    } else if (m_pathArea.right() < point.x()) {
-        m_pathArea.setRight(point.x());
-    }
-    if (m_pathArea.top() > point.y()) {
-        m_pathArea.setTop(point.y());
-    } else if (m_pathArea.bottom() < point.y()) {
-        m_pathArea.setBottom(point.y());
-    }
+    const QRect pointArea(point, QSize(1, 1));
+    m_pathArea = m_points.isEmpty() ? pointArea : m_pathArea.united(pointArea);
     m_points.append(point);
 }
 
@@ -148,6 +116,7 @@ void AbstractPathTool::move(const QPoint& mousePos)
     for (auto& m_point : m_points) {
         m_point += offset;
     }
+    m_pathArea.translate(offset);
 }
 
 const QPoint* AbstractPathTool::pos()
@@ -156,17 +125,6 @@ const QPoint* AbstractPathTool::pos()
         m_pos = QPoint();
         return &m_pos;
     }
-    int x = m_points.at(0).x();
-    int y = m_points.at(0).y();
-    for (auto point : m_points) {
-        if (point.x() < x) {
-            x = point.x();
-        }
-        if (point.y() < y) {
-            y = point.y();
-        }
-    }
-    m_pos.setX(x);
-    m_pos.setY(y);
+    m_pos = m_pathArea.topLeft();
     return &m_pos;
 }

@@ -5,8 +5,21 @@
 
 #include "capturetoolobjects.h"
 #include <QUndoCommand>
+#include <memory>
 
 class CaptureWidget;
+
+class AppendPencilCommand : public QUndoCommand
+{
+public:
+    AppendPencilCommand(CaptureWidget* captureWidget, CaptureTool* pencil);
+    void undo() override;
+    void redo() override;
+
+private:
+    CaptureWidget* m_captureWidget;
+    std::unique_ptr<CaptureTool> m_pencil;
+};
 
 class ModificationCommand : public QUndoCommand
 {

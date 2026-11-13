@@ -96,7 +96,10 @@ void verifyPencilTipPreview()
             }
             {
                 QPainter painter(&preview);
-                pencil.paintMousePreview(painter, context);
+                TestPencilTool dot;
+                dot.drawStart(context);
+                require(dot.isValid(), "a pencil click must leave a dot");
+                dot.process(painter, preview);
             }
             const QImage dot = preview.toImage();
             const QRect dotBounds = inkBounds(dot);
@@ -115,27 +118,52 @@ void verifyPencilTipPreview()
             require(qAbs(dotBounds.width() - dotBounds.height()) <= 1,
                     "pencil tip preview is not a round dot");
 
-            const QCursor cursor = PencilTool::drawingCursor(width, dpr);
+            const QCursor cursor =
+              PencilTool::drawingCursor(width, dpr, context.color);
+            require(!pencil.showMousePreview(),
+                    "the pencil dot must move with the native cursor");
+            require(cursor.pixmap().devicePixelRatio() == qCeil(dpr),
+                    "the native cursor buffer scale must be an integer");
+            require(cursor ==
+                      PencilTool::drawingCursor(width, dpr, context.color),
+                    "the same pencil cursor should reuse its native bitmap");
+            require(cursor != PencilTool::drawingCursor(width, dpr, Qt::green),
+                    "changing the brush color must change the cursor dot");
+            preview.fill(Qt::transparent);
             {
                 QPainter painter(&preview);
                 painter.drawPixmap(context.mousePos - cursor.hotSpot(),
                                    cursor.pixmap());
             }
-            const QImage combined = preview.toImage();
-            for (int y = dotBounds.top(); y <= dotBounds.bottom(); ++y) {
-                for (int x = dotBounds.left(); x <= dotBounds.right(); ++x) {
-                    if (dot.pixelColor(x, y).alpha() > 0 &&
-                        dot.pixelColor(x, y) != combined.pixelColor(x, y)) {
-                        std::fprintf(stderr,
-                                     "occlusion width=%d dpr=%.2f offset=%d,%d\n",
-                                     width, dpr, x - qRound(64 * dpr),
-                                     y - qRound(64 * dpr));
+            const QImage cursorImage = preview.toImage();
+            QImage cursorDot(cursorImage.size(), QImage::Format_ARGB32);
+            cursorDot.fill(Qt::transparent);
+            for (int y = 0; y < cursorDot.height(); ++y) {
+                for (int x = 0; x < cursorDot.width(); ++x) {
+                    const QColor pixel = cursorImage.pixelColor(x, y);
+                    if (pixel.red() > 0 && pixel.green() == 0 &&
+                        pixel.blue() == 0 &&
+                        dotBounds.adjusted(-2, -2, 2, 2).contains(x, y)) {
+                        cursorDot.setPixelColor(x, y, pixel);
                     }
-                    require(dot.pixelColor(x, y).alpha() == 0 ||
-                              dot.pixelColor(x, y) == combined.pixelColor(x, y),
-                            "pencil cursor hides the brush-size dot");
                 }
             }
+            const QRect cursorDotBounds = inkBounds(cursorDot);
+            if (cursorDotBounds.isEmpty() ||
+                !cursorDotBounds.adjusted(-1, -1, 1, 1).contains(dotBounds) ||
+                !dotBounds.adjusted(-1, -1, 1, 1).contains(cursorDotBounds)) {
+                std::fprintf(stderr,
+                             "width=%d dpr=%.2f hotspot=%d,%d dot=%d,%d,%d,%d cursor=%d,%d,%d,%d\n",
+                             width, dpr, cursor.hotSpot().x(), cursor.hotSpot().y(),
+                             dotBounds.x(), dotBounds.y(), dotBounds.width(),
+                             dotBounds.height(), cursorDotBounds.x(),
+                             cursorDotBounds.y(), cursorDotBounds.width(),
+                             cursorDotBounds.height());
+            }
+            require(!cursorDotBounds.isEmpty() &&
+                      cursorDotBounds.adjusted(-1, -1, 1, 1).contains(dotBounds) &&
+                      dotBounds.adjusted(-1, -1, 1, 1).contains(cursorDotBounds),
+                    "cursor dot is misaligned or differs from the stroke width");
         }
     }
     qInfo() << "Pencil preview pixels match strokes at 100%, 175% and 200%";

@@ -29,7 +29,7 @@ struct CaptureContext
     // Size of the active tool
     int toolSize;
     // Pen style for dashed/dotted lines: 0=Solid, 1=Dash, 2=Dot, 3=DashDot
-    int penStyle;
+    int penStyle{ 0 };
     // Current circle count
     int circleCount;
     // Mode of the capture widget

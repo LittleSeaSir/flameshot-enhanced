@@ -12,8 +12,16 @@ CaptureToolObjects::CaptureToolObjects(QObject* parent)
 
 void CaptureToolObjects::append(const QPointer<CaptureTool>& captureTool)
 {
+    if (captureTool) {
+        append(captureTool, captureTool->parent());
+    }
+}
+
+void CaptureToolObjects::append(const QPointer<CaptureTool>& captureTool,
+                                QObject* parent)
+{
     if (!captureTool.isNull()) {
-        m_captureToolObjects.append(captureTool->copy(captureTool->parent()));
+        m_captureToolObjects.append(captureTool->copy(parent));
     }
 }
 
