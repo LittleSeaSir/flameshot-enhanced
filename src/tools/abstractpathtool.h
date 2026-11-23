@@ -20,6 +20,8 @@ public:
     void move(const QPoint& mousePos) override;
     const QPoint* pos() override;
     int size() const override { return m_thickness; };
+    void drawMove(const QPointF& p);
+    void drawMoveWithAdjustment(const QPointF& p);
 
 public slots:
     void drawEnd(const QPoint& p) override;
@@ -28,16 +30,16 @@ public slots:
     void onColorChanged(const QColor& c) override;
     void onSizeChanged(int size) override;
 
-    const QVector<QPoint>& points() const { return m_points; }
+    const QVector<QPointF>& points() const { return m_points; }
 
 protected:
     void copyParams(const AbstractPathTool* from, AbstractPathTool* to);
-    void addPoint(const QPoint& point);
+    void addPoint(const QPointF& point);
 
     // class members
-    QRect m_pathArea;
+    QRectF m_pathArea;
     QColor m_color;
-    QVector<QPoint> m_points;
+    QVector<QPointF> m_points;
     // use m_padding to extend the area of the backup
     int m_padding;
     QPoint m_pos;

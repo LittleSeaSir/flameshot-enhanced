@@ -39,6 +39,7 @@ class QNetworkReply;
 class ColorPicker;
 class NotifierBox;
 class HoverEventFilter;
+class PencilTool;
 #if !defined(DISABLE_UPDATE_CHECKER)
 class UpdateNotificationWidget;
 #endif
@@ -138,7 +139,8 @@ private:
     bool editTextAtPos(const QPoint& pos);
     bool beginTextEditing(int layer);
     void showColorPicker(const QPoint& pos);
-    bool startDrawObjectTool(const QPoint& pos);
+    bool startDrawObjectTool(const QPointF& pos);
+    void extendPencilStroke(PencilTool& pencil, const QPointF& pos);
     bool eraseWholeStrokesBetween(const QPoint& from, const QPoint& to);
     QPointer<CaptureTool> activeToolObject();
     void initContext(bool fullscreen, const CaptureRequest& req);
@@ -180,6 +182,7 @@ private:
     QRect paddedUpdateRect(const QRect& r) const;
     void drawErrorMessage(const QString& msg, QPainter* painter);
     void drawInactiveRegion(QPainter* painter);
+    void drawScaledPencilPreview(QPainter& painter, const QRect& damage);
     void drawToolsData(bool drawSelection = true);
     void drawObjectSelection();
 
@@ -247,6 +250,7 @@ private:
     CaptureToolObjects m_captureToolObjects;
     CaptureToolObjects m_captureToolObjectsBackup;
     QPixmap m_annotationLayer;
+    QPixmap m_scaledPencilPreview;
     QRect m_previousPreviewRect;
     QRect m_previousToolRect;
 

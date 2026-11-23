@@ -3,6 +3,7 @@
 
 #include "tools/abstracttwopointtool.h"
 #include "tools/eraser/erasertool.h"
+#include "tools/pencil/penciltool.h"
 #include "widgets/capture/capturetoolbutton.h"
 #include "widgets/capture/capturewidget.h"
 #include "widgets/panel/utilitypanel.h"
@@ -19,13 +20,13 @@ namespace {
 
 void sendMouseEvent(CaptureWidget& widget,
                     QEvent::Type type,
-                    const QPoint& pos,
+                    const QPointF& pos,
                     Qt::MouseButton button,
                     Qt::MouseButtons buttons)
 {
     QMouseEvent event(type,
-                      QPointF(pos),
-                      QPointF(widget.mapToGlobal(pos)),
+                      pos,
+                      widget.mapToGlobal(pos),
                       button,
                       buttons,
                       Qt::NoModifier);
@@ -194,7 +195,7 @@ public:
                   newlyDrawn->points().second == blankTo,
                 "new rectangle geometry does not match the blank drag");
 
-        auto selectTool = [&widget](CaptureTool::Type type) {
+        auto selectTool = [](CaptureWidget& widget, CaptureTool::Type type) {
             for (auto* button : widget.findChildren<CaptureToolButton*>()) {
                 if (button->tool()->type() == type) {
                     widget.setState(button);
@@ -203,7 +204,8 @@ public:
             }
             return static_cast<CaptureTool*>(nullptr);
         };
-        require(selectTool(CaptureTool::TYPE_PENCIL), "pencil button missing");
+        require(selectTool(widget, CaptureTool::TYPE_PENCIL),
+                "pencil button missing");
         widget.setDrawColor(Qt::red);
         widget.onToolSizeChanged(6);
         const auto beforePencil = widget.m_context.screenshot.toImage();
@@ -229,7 +231,7 @@ public:
                 "undo of the click changed other strokes");
 
         auto* eraser = qobject_cast<EraserTool*>(
-          selectTool(CaptureTool::TYPE_ERASER));
+          selectTool(widget, CaptureTool::TYPE_ERASER));
         require(eraser, "eraser button missing");
         if (!eraser) {
             return EXIT_FAILURE;
@@ -250,7 +252,7 @@ public:
         require(afterEraser.pixelColor(erased) == beforePencil.pixelColor(erased),
                 "pixel eraser did not clear the old pencil stroke");
 
-        selectTool(CaptureTool::TYPE_PENCIL);
+        selectTool(widget, CaptureTool::TYPE_PENCIL);
         press(widget, erased);
         release(widget, erased);
         const auto afterNewPencil = widget.m_context.screenshot.toImage();
@@ -273,6 +275,58 @@ public:
         widget.redo();
         require(widget.m_context.screenshot.toImage() == afterNewPencil,
                 "redo changed the final image");
+
+        const QVector<QPointF> fineStroke{
+            { 61.125, 211.125 }, { 61.375, 211.25 }, { 61.875, 211.375 }
+        };
+        sendMouseEvent(widget, QEvent::MouseButtonPress, fineStroke.first(),
+                       Qt::LeftButton, Qt::LeftButton);
+        sendMouseEvent(widget, QEvent::MouseMove, fineStroke.at(1),
+                       Qt::NoButton, Qt::LeftButton);
+        sendMouseEvent(widget, QEvent::MouseButtonRelease, fineStroke.last(),
+                       Qt::LeftButton, Qt::NoButton);
+        auto storedFineStroke = [&widget]() {
+            return qobject_cast<PencilTool*>(widget.m_captureToolObjects.at(
+              widget.m_captureToolObjects.size() - 1).data());
+        };
+        auto* pencil = storedFineStroke();
+        require(pencil && pencil->points() == fineStroke,
+                "pencil rounded a press, move or release before smoothing");
+        widget.undo();
+        widget.redo();
+        pencil = storedFineStroke();
+        require(pencil && pencil->points() == fineStroke,
+                "redo changed the pencil's fractional coordinates");
+
+        QPixmap scaledSource(560, 420);
+        scaledSource.setDevicePixelRatio(1.75);
+        scaledSource.fill(QColor(22, 40, 58));
+        CaptureWidget scaledWidget(scaledSource, QRect(20, 20, 320, 240));
+        selectTool(scaledWidget, CaptureTool::TYPE_PENCIL);
+        scaledWidget.setDrawColor(Qt::red);
+        scaledWidget.onToolSizeChanged(2);
+        const QPoint from(50, 70);
+        const QPoint to(285, 170);
+        press(scaledWidget, from);
+        drag(scaledWidget, to);
+
+        QImage preview(480, 360, QImage::Format_ARGB32_Premultiplied);
+        QImage committed(preview.size(), preview.format());
+        for (auto* image : { &preview, &committed }) {
+            image->setDevicePixelRatio(1.5);
+            image->fill(Qt::transparent);
+        }
+        {
+            QPainter painter(&preview);
+            scaledWidget.drawScaledPencilPreview(painter, QRect(0, 0, 320, 240));
+        }
+        release(scaledWidget, to);
+        {
+            QPainter painter(&committed);
+            painter.drawPixmap(0, 0, scaledWidget.m_context.screenshot);
+        }
+        require(preview == committed,
+                "a scaled pencil preview changed pixels when committed");
 
         if (passed) {
             qInfo() << "CaptureWidget fixed-shape reselection test passed";

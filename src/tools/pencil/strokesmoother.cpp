@@ -12,7 +12,7 @@ constexpr qreal MIN_POINT_DISTANCE = 0.75;
 constexpr qreal MAX_POINT_DISTANCE = 4.0;
 constexpr int SMOOTHING_PASSES = 2;
 
-QVector<QPointF> resample(const QVector<QPoint>& rawPoints)
+QVector<QPointF> resample(const QVector<QPointF>& rawPoints)
 {
     QVector<QPointF> sampled;
     if (rawPoints.isEmpty()) {
@@ -20,12 +20,13 @@ QVector<QPointF> resample(const QVector<QPoint>& rawPoints)
     }
 
     sampled.reserve(rawPoints.size());
-    sampled.append(QPointF(rawPoints.first()));
+    sampled.append(rawPoints.first());
     for (int i = 1; i < rawPoints.size(); ++i) {
-        const QPointF candidate(rawPoints.at(i));
+        const QPointF& candidate = rawPoints.at(i);
         const QPointF previous = sampled.last();
         const qreal distance = QLineF(previous, candidate).length();
-        if (distance < MIN_POINT_DISTANCE) {
+        if (distance == 0.0 ||
+            (distance < MIN_POINT_DISTANCE && i + 1 < rawPoints.size())) {
             continue;
         }
 
@@ -80,7 +81,7 @@ QVector<QPointF> smoothingPass(const QVector<QPointF>& points)
 
 namespace StrokeSmoother {
 
-QVector<QPointF> stabilizedPoints(const QVector<QPoint>& rawPoints)
+QVector<QPointF> stabilizedPoints(const QVector<QPointF>& rawPoints)
 {
     QVector<QPointF> points = resample(rawPoints);
     for (int pass = 0; pass < SMOOTHING_PASSES; ++pass) {
@@ -89,7 +90,7 @@ QVector<QPointF> stabilizedPoints(const QVector<QPoint>& rawPoints)
     return points;
 }
 
-QPainterPath buildPath(const QVector<QPoint>& rawPoints)
+QPainterPath buildPath(const QVector<QPointF>& rawPoints)
 {
     const QVector<QPointF> points = stabilizedPoints(rawPoints);
     QPainterPath path;

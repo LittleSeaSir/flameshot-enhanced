@@ -30,7 +30,7 @@ int main()
     require(StrokeSmoother::buildPath({}).isEmpty(),
             "empty input must produce an empty path");
 
-    const QVector<QPoint> sparseLine{ { 0, 0 }, { 0, 0 }, { 12, 0 } };
+    const QVector<QPointF> sparseLine{ { 0, 0 }, { 0, 0 }, { 12, 0 } };
     const auto sampledLine = StrokeSmoother::stabilizedPoints(sparseLine);
     require(fuzzyPointEqual(sampledLine.first(), QPointF(0, 0)),
             "stroke start moved during stabilization");
@@ -42,12 +42,12 @@ int main()
                 "resampled segment exceeded maximum spacing");
     }
 
-    const QVector<QPoint> jitter{ { 0, 0 },  { 2, 1 },  { 4, -1 },
-                                  { 6, 1 },  { 8, -1 }, { 10, 0 } };
+    const QVector<QPointF> jitter{ { 0, 0 }, { 2, 1 }, { 4, -1 },
+                                   { 6, 1 }, { 8, -1 }, { 10, 0 } };
     const auto stabilized = StrokeSmoother::stabilizedPoints(jitter);
     qreal rawVariation = 0.0;
     qreal stabilizedVariation = 0.0;
-    for (const QPoint& point : jitter) {
+    for (const QPointF& point : jitter) {
         rawVariation += qAbs(point.y());
     }
     for (const QPointF& point : stabilized) {
@@ -56,7 +56,7 @@ int main()
     require(stabilizedVariation < rawVariation,
             "stabilizer did not reduce straight-line jitter");
 
-    const QVector<QPoint> corner{ { 0, 0 }, { 10, 0 }, { 10, 10 } };
+    const QVector<QPointF> corner{ { 0, 0 }, { 10, 0 }, { 10, 10 } };
     const QPainterPath cornerPath = StrokeSmoother::buildPath(corner);
     require(fuzzyPointEqual(cornerPath.pointAtPercent(0.0), QPointF(0, 0)),
             "curve does not start at the first input point");
@@ -66,10 +66,16 @@ int main()
               QRectF(QPointF(0, 0), QPointF(10, 10))),
             "corner path escaped its expected bounds");
 
-    QVector<QPoint> longStroke;
+    const QPointF fineStart(10.125, 8.125);
+    const QPointF fineEnd(10.375, 8.375);
+    const QPainterPath finePath = StrokeSmoother::buildPath({ fineStart, fineEnd });
+    require(!finePath.isEmpty() && fuzzyPointEqual(finePath.currentPosition(), fineEnd),
+            "a distinct subpixel endpoint was discarded");
+
+    QVector<QPointF> longStroke;
     longStroke.reserve(10000);
     for (int x = 0; x < 10000; ++x) {
-        longStroke.append(QPoint(x, x % 3));
+        longStroke.append(QPointF(x, x % 3));
     }
     const QPainterPath longPath = StrokeSmoother::buildPath(longStroke);
     require(longPath.elementCount() < longStroke.size() * 4,

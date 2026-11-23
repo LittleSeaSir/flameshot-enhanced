@@ -154,6 +154,8 @@ public:
         widget.selectAll();
         require(OverlayMessage::instance()->isHidden(),
                 "select-all left capture help visible");
+        require(widget.pixmap().toImage() == source.toImage(),
+                "select-all trimmed the fractional-scale screen edges");
         widget.selectAll();
         require(OverlayMessage::instance()->isHidden(),
                 "repeated select-all brought help back");

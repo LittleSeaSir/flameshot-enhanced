@@ -49,7 +49,7 @@
 
 namespace {
 
-QPixmap grabKWinDesktop()
+QPixmap grabKWinScreenshot(const QString& screenName = {})
 {
     constexpr int timeoutMs = 5000;
     constexpr qint64 maxImageBytes = 1024LL * 1024 * 1024;
@@ -69,11 +69,15 @@ QPixmap grabKWinDesktop()
           QStringLiteral("org.kde.KWin.ScreenShot2"),
           QStringLiteral("/org/kde/KWin/ScreenShot2"),
           QStringLiteral("org.kde.KWin.ScreenShot2"),
-          QStringLiteral("CaptureWorkspace"));
+          screenName.isEmpty() ? QStringLiteral("CaptureWorkspace")
+                               : QStringLiteral("CaptureScreen"));
         const QVariantMap options{
             { QStringLiteral("include-cursor"), false },
             { QStringLiteral("native-resolution"), true },
         };
+        if (!screenName.isEmpty()) {
+            message << screenName;
+        }
         message << options << QVariant::fromValue(writer);
         reply = QDBusConnection::sessionBus().call(message, QDBus::Block, timeoutMs);
     }
@@ -131,7 +135,7 @@ QPixmap grabKWinDesktop()
     return remaining == 0 ? QPixmap::fromImage(image) : QPixmap();
 }
 
-QPixmap grabWithSpectacle()
+QPixmap grabWithSpectacle(bool currentScreen = false)
 {
     const auto program = QStandardPaths::findExecutable(QStringLiteral("spectacle"));
     if (program.isEmpty()) {
@@ -151,7 +155,8 @@ QPixmap grabWithSpectacle()
     // Background mode includes the pointer only when --pointer is passed.
     process.start(program,
                   { QStringLiteral("--background"),
-                    QStringLiteral("--fullscreen"),
+                    currentScreen ? QStringLiteral("--current")
+                                  : QStringLiteral("--fullscreen"),
                     QStringLiteral("--nonotify"),
                     QStringLiteral("--new-instance"),
                     QStringLiteral("--output"),
@@ -165,6 +170,41 @@ QPixmap grabWithSpectacle()
         return {};
     }
     return QPixmap(filename);
+}
+
+QString kwinActiveOutput()
+{
+    const auto message =
+      QDBusMessage::createMethodCall(QStringLiteral("org.kde.KWin"),
+                                     QStringLiteral("/KWin"),
+                                     QStringLiteral("org.kde.KWin"),
+                                     QStringLiteral("activeOutputName"));
+    const QDBusReply<QString> reply =
+      QDBusConnection::sessionBus().call(message, QDBus::Block, 1000);
+    return reply.value();
+}
+
+QPixmap grabKdeMonitor(const QScreen* screen)
+{
+    const QString name = screen->name();
+    if (name.isEmpty()) {
+        return {};
+    }
+    QPixmap pixmap = grabKWinScreenshot(name);
+    // Spectacle can capture the active output on behalf of executables
+    // that lack permission to use KWin's screenshot interface.
+    if (pixmap.isNull() && QGuiApplication::screens().size() > 1 &&
+        kwinActiveOutput() == name) {
+        pixmap = grabWithSpectacle(true);
+        if (!pixmap.isNull() && kwinActiveOutput() != name) {
+            return {};
+        }
+    }
+    if (!pixmap.isNull()) {
+        pixmap.setDevicePixelRatio(
+          screenshotDevicePixelRatio(pixmap.size(), screen->size()));
+    }
+    return pixmap;
 }
 
 } // namespace
@@ -193,7 +233,7 @@ void ScreenGrabber::grabViaDesktopService(bool& ok, QPixmap& res)
     // The Screenshot portal has no cursor option, and KDE's backend can
     // include the pointer even for a non-interactive request.
     if (m_info.windowManager() == DesktopInfo::KDE) {
-        res = grabKWinDesktop();
+        res = grabKWinScreenshot();
         if (res.isNull()) {
             // KWin may only authorize an installed, trusted executable.
             res = grabWithSpectacle();
@@ -399,6 +439,9 @@ QPixmap ScreenGrabber::grabEntireDesktop(bool& ok, int preSelectedMonitor)
     ok = true;
     int wid = 0;
     QPixmap screenshot;
+#ifdef Q_OS_LINUX
+    bool tryNativeMonitor = false;
+#endif
 
 #if defined(Q_OS_MACOS)
     QScreen* currentScreen = QGuiAppCurrentScreen().currentScreen();
@@ -426,6 +469,19 @@ QPixmap ScreenGrabber::grabEntireDesktop(bool& ok, int preSelectedMonitor)
             return QPixmap();
         }
     } else {
+#ifdef Q_OS_LINUX
+        tryNativeMonitor =
+          m_info.waylandDetected() && m_info.windowManager() == DesktopInfo::KDE;
+        const auto screens = QGuiApplication::screens();
+        const int monitor = screens.size() == 1 ? 0 : preSelectedMonitor;
+        if (tryNativeMonitor && monitor >= 0 && monitor < screens.size()) {
+            screenshot = grabKdeMonitor(screens[monitor]);
+            if (!screenshot.isNull()) {
+                m_selectedMonitor = monitor;
+                return screenshot;
+            }
+        }
+#endif
         grabViaDesktopService(ok, screenshot);
         if (!ok) {
             AbstractLogger::error() << tr("Unable to capture screen");
@@ -445,7 +501,18 @@ QPixmap ScreenGrabber::grabEntireDesktop(bool& ok, int preSelectedMonitor)
         }
     }
 
-    return selectMonitorAndCrop(screenshot, ok);
+    QPixmap selected = selectMonitorAndCrop(screenshot, ok);
+#ifdef Q_OS_LINUX
+    if (tryNativeMonitor && ok && m_selectedMonitor >= 0) {
+        if (auto* screen = getSelectedScreen()) {
+            const QPixmap native = grabKdeMonitor(screen);
+            if (!native.isNull()) {
+                return native;
+            }
+        }
+    }
+#endif
+    return selected;
 }
 
 QPixmap ScreenGrabber::grabFullDesktop(bool& ok)

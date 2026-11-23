@@ -4,13 +4,12 @@
 #pragma once
 
 #include <QPainterPath>
-#include <QPoint>
 #include <QPointF>
 #include <QVector>
 
 namespace StrokeSmoother {
 
-QVector<QPointF> stabilizedPoints(const QVector<QPoint>& rawPoints);
-QPainterPath buildPath(const QVector<QPoint>& rawPoints);
+QVector<QPointF> stabilizedPoints(const QVector<QPointF>& rawPoints);
+QPainterPath buildPath(const QVector<QPointF>& rawPoints);
 
 }

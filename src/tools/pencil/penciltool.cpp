@@ -152,7 +152,7 @@ void PencilTool::process(QPainter& painter, const QPixmap& pixmap)
         return;
     }
     if (m_points.size() == 1) {
-        drawBrushDot(painter, QPointF(m_points.first()), size(), m_color);
+        drawBrushDot(painter, m_points.first(), size(), m_color);
         return;
     }
 
@@ -174,10 +174,16 @@ void PencilTool::paintMousePreview(QPainter& painter,
 
 void PencilTool::drawStart(const CaptureContext& context)
 {
+    drawStart(context, context.mousePos);
+}
+
+void PencilTool::drawStart(const CaptureContext& context,
+                           const QPointF& position)
+{
     m_color = context.color;
     m_penStyle = context.penStyle;
     onSizeChanged(context.toolSize);
-    addPoint(context.mousePos);
+    addPoint(position);
 }
 
 void PencilTool::pressed(CaptureContext& context)

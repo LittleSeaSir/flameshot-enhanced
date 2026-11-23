@@ -27,6 +27,7 @@ public:
     void process(QPainter& painter, const QPixmap& pixmap) override;
     void paintMousePreview(QPainter& painter,
                            const CaptureContext& context) override;
+    void drawStart(const CaptureContext& context, const QPointF& position);
 
 protected:
     CaptureTool::Type type() const override;

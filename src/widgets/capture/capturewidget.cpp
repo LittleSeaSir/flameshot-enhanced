@@ -940,7 +940,6 @@ void CaptureWidget::closeEvent(QCloseEvent* event)
 
 void CaptureWidget::paintEvent(QPaintEvent* paintEvent)
 {
-    Q_UNUSED(paintEvent)
     QPainter painter(this);
     if (!painter.isActive()) {
         return;
@@ -963,7 +962,16 @@ void CaptureWidget::paintEvent(QPaintEvent* paintEvent)
         painter.save();
         save = true;
     }
-    painter.drawPixmap(0, 0, m_context.screenshot);
+    const bool scaledPencilPreview =
+      m_mouseIsClicked && m_activeTool &&
+      m_activeTool->type() == CaptureTool::TYPE_PENCIL &&
+      !qFuzzyCompare(m_context.screenshot.devicePixelRatio(),
+                     painter.device()->devicePixelRatioF());
+    if (scaledPencilPreview) {
+        drawScaledPencilPreview(painter, paintEvent->rect());
+    } else {
+        painter.drawPixmap(0, 0, m_context.screenshot);
+    }
     if (m_selection && m_xywhDisplay) {
         const QRect& selection = m_selection->geometry().normalized();
         const qreal scale = m_context.screenshot.devicePixelRatio();
@@ -1050,7 +1058,9 @@ void CaptureWidget::paintEvent(QPaintEvent* paintEvent)
 
     if (m_activeTool && m_mouseIsClicked) {
         painter.setRenderHint(QPainter::Antialiasing, true);
-        m_activeTool->process(painter, m_context.screenshot);
+        if (!scaledPencilPreview) {
+            m_activeTool->process(painter, m_context.screenshot);
+        }
 
         // Draw angle indicator overlay when Shift is held
         if (m_showAngleIndicator) {
@@ -1134,7 +1144,7 @@ void CaptureWidget::showColorPicker(const QPoint& pos)
     m_colorPicker->show();
 }
 
-bool CaptureWidget::startDrawObjectTool(const QPoint& pos)
+bool CaptureWidget::startDrawObjectTool(const QPointF& pos)
 {
     if (activeButtonToolType() != CaptureTool::NONE &&
         activeButtonToolType() != CaptureTool::TYPE_MOVESELECTION) {
@@ -1160,15 +1170,29 @@ bool CaptureWidget::startDrawObjectTool(const QPoint& pos)
                 this,
                 &CaptureWidget::handleToolSignal);
 
-        m_context.mousePos = m_displayGrid ? snapToGrid(pos) : pos;
-        m_activeTool->drawStart(m_context);
-        if (activeButtonToolType() == CaptureTool::TYPE_PENCIL) {
+        const QPoint pixelPos = pos.toPoint();
+        m_context.mousePos = m_displayGrid ? snapToGrid(pixelPos) : pixelPos;
+        if (auto* pencil = qobject_cast<PencilTool*>(m_activeTool.data())) {
+            pencil->drawStart(
+              m_context, m_displayGrid ? QPointF(m_context.mousePos) : pos);
             updateTool(m_activeTool);
+        } else {
+            m_activeTool->drawStart(m_context);
         }
 
         return true;
     }
     return false;
+}
+
+void CaptureWidget::extendPencilStroke(PencilTool& pencil, const QPointF& pos)
+{
+    if (m_adjustmentButtonPressed || m_shiftPressed) {
+        pencil.drawMoveWithAdjustment(pos);
+    } else {
+        pencil.drawMove(m_displayGrid ? QPointF(snapToGrid(pos.toPoint()))
+                                       : pos);
+    }
 }
 
 bool CaptureWidget::eraseWholeStrokesBetween(const QPoint& from,
@@ -1530,7 +1554,7 @@ void CaptureWidget::mousePressEvent(QMouseEvent* e)
         }
 
         // Click using a tool excluding tool MOVE
-        if (startDrawObjectTool(m_mousePressedPos)) {
+        if (startDrawObjectTool(e->position())) {
             auto* eraser = qobject_cast<EraserTool*>(m_activeTool.data());
             if (eraser && eraser->mode() == EraserTool::Mode::WholeStroke) {
                 m_wholeStrokeEraseChanged = false;
@@ -1677,6 +1701,9 @@ void CaptureWidget::mouseMoveEvent(QMouseEvent* e)
         if (eraser && eraser->mode() == EraserTool::Mode::WholeStroke) {
             eraseWholeStrokesBetween(m_lastWholeStrokeErasePos, e->pos());
             m_lastWholeStrokeErasePos = e->pos();
+        } else if (auto* pencil =
+                     qobject_cast<PencilTool*>(m_activeTool.data())) {
+            extendPencilStroke(*pencil, e->position());
         } else if (m_adjustmentButtonPressed || m_shiftPressed) {
             m_activeTool->drawMoveWithAdjustment(e->pos());
         } else {
@@ -1755,12 +1782,9 @@ void CaptureWidget::mouseReleaseEvent(QMouseEvent* e)
                 return;
             }
             // end draw/edit
-            if (m_activeTool->type() == CaptureTool::TYPE_PENCIL) {
+            if (auto* pencil = qobject_cast<PencilTool*>(m_activeTool.data())) {
                 m_context.mousePos = e->pos();
-                m_activeTool->drawEnd(
-                  m_displayGrid && !m_adjustmentButtonPressed && !m_shiftPressed
-                    ? snapToGrid(e->pos())
-                    : e->pos());
+                extendPencilStroke(*pencil, e->position());
             } else {
                 m_activeTool->drawEnd(m_context.mousePos);
             }
@@ -2675,6 +2699,32 @@ void CaptureWidget::appendPencil(CaptureTool* pencil)
     update(area);
 }
 
+void CaptureWidget::drawScaledPencilPreview(QPainter& painter,
+                                            const QRect& damage)
+{
+    const QPixmap& screenshot = m_context.screenshot;
+    const qreal dpr = screenshot.devicePixelRatio();
+    if (m_scaledPencilPreview.size() != screenshot.size() ||
+        m_scaledPencilPreview.devicePixelRatio() != dpr) {
+        m_scaledPencilPreview = QPixmap(screenshot.size());
+        m_scaledPencilPreview.setDevicePixelRatio(dpr);
+        m_scaledPencilPreview.fill(Qt::transparent);
+    }
+
+    // Render the damaged part of the preview in the screenshot's pixel grid.
+    // Raster sampling at fractional scale depends on the pixmap origin and
+    // extent, so present this buffer exactly as we present committed ink.
+    {
+        QPainter ink(&m_scaledPencilPreview);
+        ink.setClipRect(damage.adjusted(-2, -2, 2, 2));
+        ink.setCompositionMode(QPainter::CompositionMode_Source);
+        ink.drawPixmap(0, 0, screenshot);
+        ink.setCompositionMode(QPainter::CompositionMode_SourceOver);
+        m_activeTool->process(ink, screenshot);
+    }
+    painter.drawPixmap(0, 0, m_scaledPencilPreview);
+}
+
 void CaptureWidget::removeLastPencil()
 {
     const int index = m_captureToolObjects.size() - 1;
@@ -2947,6 +2997,10 @@ QRect CaptureWidget::extendedSelection() const
 
 QRect CaptureWidget::extendedRect(const QRect& r) const
 {
+    if (m_context.fullscreen && r == rect()) {
+        // A logical fullscreen size is rounded on fractional-scale displays.
+        return m_context.screenshot.rect();
+    }
     auto devicePixelRatio = m_context.screenshot.devicePixelRatio();
     return { static_cast<int>(r.left() * devicePixelRatio),
              static_cast<int>(r.top() * devicePixelRatio),

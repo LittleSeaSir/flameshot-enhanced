@@ -58,7 +58,7 @@ QRect AbstractPathTool::boundingRect() const
     }
     const int offset =
       m_thickness <= 1 ? 1 : static_cast<int>(round(m_thickness * 0.7 + 0.5));
-    return m_pathArea.adjusted(-offset, -offset, offset, offset);
+    return m_pathArea.adjusted(-offset, -offset, offset, offset).toAlignedRect();
 }
 
 void AbstractPathTool::drawEnd(const QPoint& p)
@@ -68,15 +68,25 @@ void AbstractPathTool::drawEnd(const QPoint& p)
 
 void AbstractPathTool::drawMove(const QPoint& p)
 {
+    drawMove(QPointF(p));
+}
+
+void AbstractPathTool::drawMove(const QPointF& p)
+{
     addPoint(p);
 }
 
 void AbstractPathTool::drawMoveWithAdjustment(const QPoint& p)
 {
+    drawMoveWithAdjustment(QPointF(p));
+}
+
+void AbstractPathTool::drawMoveWithAdjustment(const QPointF& p)
+{
     // Shift+draw: draw a straight line from the start point at ANY angle
     // (free angle, no snapping)
     if (!m_points.isEmpty()) {
-        QPoint start = m_points.first(); // save actual start before clearing
+        const QPointF start = m_points.first();
         m_points.clear();
         addPoint(start);
         addPoint(p);
@@ -93,15 +103,13 @@ void AbstractPathTool::onSizeChanged(int size)
     m_thickness = size;
 }
 
-void AbstractPathTool::addPoint(const QPoint& point)
+void AbstractPathTool::addPoint(const QPointF& point)
 {
-    // High-report-rate mice can deliver multiple events for the same logical
-    // pixel. Keeping duplicates only increases path processing cost and can
-    // create zero-length spline segments.
+    // Repeated positions add no geometry.
     if (!m_points.isEmpty() && m_points.last() == point) {
         return;
     }
-    const QRect pointArea(point, QSize(1, 1));
+    const QRectF pointArea(point, QSizeF(1, 1));
     m_pathArea = m_points.isEmpty() ? pointArea : m_pathArea.united(pointArea);
     m_points.append(point);
 }
@@ -125,6 +133,6 @@ const QPoint* AbstractPathTool::pos()
         m_pos = QPoint();
         return &m_pos;
     }
-    m_pos = m_pathArea.topLeft();
+    m_pos = m_pathArea.topLeft().toPoint();
     return &m_pos;
 }
